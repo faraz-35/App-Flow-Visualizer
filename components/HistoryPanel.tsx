@@ -6,9 +6,12 @@ interface HistoryPanelProps {
   isOpen: boolean;
   versions: Version[];
   currentVersionId: string | null;
+  diffingVersionId: string | null;
   onSaveVersion: (name: string) => void;
   onLoadVersion: (id: string) => void;
   onDeleteVersion: (id: string) => void;
+  onStartDiff: (id: string) => void;
+  onClearDiff: () => void;
   onClose: () => void;
 }
 
@@ -16,9 +19,12 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
   isOpen, 
   versions, 
   currentVersionId, 
+  diffingVersionId,
   onSaveVersion, 
   onLoadVersion, 
   onDeleteVersion, 
+  onStartDiff,
+  onClearDiff,
   onClose 
 }) => {
   const [versionName, setVersionName] = useState('');
@@ -64,6 +70,18 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
           </button>
         </div>
       </div>
+      
+      {diffingVersionId && (
+        <div className="mb-4 border-b pb-4 text-center">
+            <button
+                onClick={onClearDiff}
+                className="w-full px-4 py-2 bg-slate-200 text-slate-800 text-sm font-medium rounded-md hover:bg-slate-300"
+            >
+                Clear Diff View
+            </button>
+        </div>
+      )}
+
 
       <div className="flex-grow overflow-y-auto -mr-4 pr-4">
         {sortedVersions.length === 0 ? (
@@ -71,13 +89,20 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
         ) : (
           <ul className="space-y-2">
             {sortedVersions.map(version => (
-              <li key={version.id} className={`p-3 rounded-lg border transition-colors ${currentVersionId === version.id ? 'bg-blue-50 border-blue-300' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'}`}>
+              <li key={version.id} className={`p-3 rounded-lg border transition-colors ${currentVersionId === version.id ? 'bg-blue-50 border-blue-300' : diffingVersionId === version.id ? 'bg-yellow-50 border-yellow-300' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'}`}>
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className={`font-semibold text-slate-800 ${currentVersionId === version.id ? 'text-blue-800' : ''}`}>{version.name}</p>
+                    <p className={`font-semibold text-slate-800 ${currentVersionId === version.id ? 'text-blue-800' : ''} ${diffingVersionId === version.id ? 'text-yellow-800' : ''}`}>{version.name}</p>
                     <p className="text-xs text-slate-500 mt-1">{new Date(version.timestamp).toLocaleString()}</p>
                   </div>
                   <div className="flex items-center space-x-1 flex-shrink-0 ml-2">
+                     <button
+                        onClick={() => onStartDiff(version.id)}
+                        disabled={diffingVersionId === version.id}
+                        className="px-3 py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-100 disabled:bg-slate-200 disabled:cursor-not-allowed"
+                      >
+                        Diff
+                      </button>
                      <button
                         onClick={() => onLoadVersion(version.id)}
                         className="px-3 py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-100"

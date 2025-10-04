@@ -46,3 +46,5 @@ export interface Version {
   nodes: NodeData[];
   edges: EdgeData[];
 }
+
+export type DiffStatus = 'added' | 'modified' | 'deleted' | 'unchanged';

@@ -1,11 +1,14 @@
 import React from 'react';
-import type { NodeData } from '../types';
+import type { NodeData, DiffStatus } from '../types';
 
 interface NodeProps {
   data: NodeData;
   isSelected: boolean;
   isParent: boolean;
   isDropTarget: boolean;
+  diffStatus: DiffStatus;
+  diffMode: 'off' | 'simple' | 'detailed';
+  isGhost?: boolean;
   onMouseDown: (e: React.MouseEvent<HTMLDivElement>, nodeId: string) => void;
   onMouseUp: (e: React.MouseEvent<HTMLDivElement>, nodeId: string) => void;
   onClick: (e: React.MouseEvent<HTMLDivElement>, nodeId: string) => void;
@@ -13,15 +16,32 @@ interface NodeProps {
   onResizeStart: (e: React.MouseEvent<HTMLDivElement>, nodeId: string) => void;
 }
 
-const Node: React.FC<NodeProps> = ({ data, isSelected, isParent, isDropTarget, onMouseDown, onMouseUp, onClick, onStartConnection, onResizeStart }) => {
+const Node: React.FC<NodeProps> = ({ 
+  data, isSelected, isParent, isDropTarget, 
+  diffStatus, diffMode, isGhost,
+  onMouseDown, onMouseUp, onClick, onStartConnection, onResizeStart 
+}) => {
   const { x, y, width, height, title, description, type, locked, variables } = data;
   const cursorClass = locked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing';
 
+  let diffRingClass = '';
+  if (diffMode === 'simple' && (diffStatus === 'added' || diffStatus === 'modified')) {
+    diffRingClass = 'ring-4 ring-blue-400 ring-offset-2';
+  } else if (diffMode === 'detailed') {
+    if (diffStatus === 'added') diffRingClass = 'ring-4 ring-green-400 ring-offset-2';
+    if (diffStatus === 'modified') diffRingClass = 'ring-4 ring-yellow-400 ring-offset-2';
+  }
+  
+  if (isGhost) {
+      diffRingClass = 'ring-4 ring-red-400 ring-offset-2';
+  }
+  
+  const ghostClass = isGhost ? 'opacity-40 pointer-events-none' : '';
 
   if (type === 'page') {
       return (
           <div
-              className={`absolute rounded-lg border border-slate-400 shadow-lg ${isSelected ? 'ring-2 ring-blue-500 border-blue-500' : ''} transition-all duration-150 ${cursorClass} bg-slate-50/70`}
+              className={`absolute rounded-lg border border-slate-400 shadow-lg ${isSelected ? 'ring-2 ring-blue-500 border-blue-500' : ''} ${diffRingClass} transition-all duration-150 ${cursorClass} bg-slate-50/70 ${ghostClass}`}
               style={{ left: x, top: y, width, height }}
               onMouseDown={(e) => onMouseDown(e, data.id)}
               onClick={(e) => onClick(e, data.id)}
@@ -32,7 +52,7 @@ const Node: React.FC<NodeProps> = ({ data, isSelected, isParent, isDropTarget, o
               <div className="p-2 h-full w-full">
                 {/* Content area for child nodes */}
               </div>
-              {isSelected && !locked && (
+              {isSelected && !locked && !isGhost && (
                 <div
                     className="absolute -bottom-2 -right-2 w-4 h-4 bg-blue-500 rounded-full cursor-nwse-resize border-2 border-white shadow"
                     onMouseDown={(e) => {
@@ -59,7 +79,7 @@ const Node: React.FC<NodeProps> = ({ data, isSelected, isParent, isDropTarget, o
 
   return (
     <div
-      className={`absolute shadow-md rounded-lg border ${borderClass} ${backgroundClass} ${parentStyle} ${cursorClass} group transition-all duration-150 flex flex-col`}
+      className={`absolute shadow-md rounded-lg border ${borderClass} ${backgroundClass} ${parentStyle} ${diffRingClass} ${cursorClass} group transition-all duration-150 flex flex-col ${ghostClass}`}
       style={{ left: x, top: y, width, height }}
       onMouseDown={(e) => onMouseDown(e, data.id)}
       onMouseUp={(e) => onMouseUp(e, data.id)}
@@ -82,7 +102,7 @@ const Node: React.FC<NodeProps> = ({ data, isSelected, isParent, isDropTarget, o
             </div>
           </div>
        )}
-       {type === 'state' && (
+       {type === 'state' && !isGhost && (
          <div 
           className="absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-blue-500 rounded-full cursor-crosshair opacity-0 group-hover:opacity-100 transition-opacity"
           onMouseDown={(e) => {

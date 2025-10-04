@@ -1,9 +1,80 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import type { NodeData, EdgeData, SelectedElement, ConnectionPreview, Version } from './types';
+import type { NodeData, EdgeData, SelectedElement, ConnectionPreview, Version, DiffStatus } from './types';
 import Node from './components/Node';
 import PropertiesPanel from './components/PropertiesPanel';
 import Toolbar from './components/Toolbar';
 import HistoryPanel from './components/HistoryPanel';
+import { UndoIcon, RedoIcon } from './components/IconComponents';
+
+type CanvasState = {
+    nodes: NodeData[];
+    edges: EdgeData[];
+};
+
+const useHistoryState = (initialState: CanvasState) => {
+    const [state, _setState] = useState({
+        past: [] as CanvasState[],
+        present: initialState,
+        future: [] as CanvasState[],
+    });
+
+    const canUndo = state.past.length > 0;
+    const canRedo = state.future.length > 0;
+
+    // FIX: Corrected syntax for useCallback. Removed extra parenthesis before the arrow function.
+    const setState = useCallback((newStateFn: (prevState: CanvasState) => CanvasState) => {
+        _setState(currentState => {
+            const newPresent = newStateFn(currentState.present);
+            
+            if (JSON.stringify(newPresent) === JSON.stringify(currentState.present)) {
+                return currentState;
+            }
+
+            return {
+                past: [...currentState.past, currentState.present],
+                present: newPresent,
+                future: [],
+            };
+        });
+    }, []);
+    
+    const resetState = useCallback((newState: CanvasState) => {
+        _setState({
+            past: [],
+            present: newState,
+            future: [],
+        });
+    }, []);
+
+    const undo = useCallback(() => {
+        _setState(currentState => {
+            if (currentState.past.length === 0) return currentState;
+            const previous = currentState.past[currentState.past.length - 1];
+            const newPast = currentState.past.slice(0, currentState.past.length - 1);
+            return {
+                past: newPast,
+                present: previous,
+                future: [currentState.present, ...currentState.future],
+            };
+        });
+    }, []);
+
+    const redo = useCallback(() => {
+         _setState(currentState => {
+            if (currentState.future.length === 0) return currentState;
+            const next = currentState.future[0];
+            const newFuture = currentState.future.slice(1);
+            return {
+                past: [...currentState.past, currentState.present],
+                present: next,
+                future: newFuture,
+            };
+        });
+    }, []);
+
+    return { state: state.present, setState, resetState, undo, redo, canUndo, canRedo };
+};
+
 
 type DraggingState = { 
   id: string; 
@@ -27,17 +98,22 @@ const getDescendants = (nodeId: string, allNodes: NodeData[]): string[] => {
     return [...children, ...children.flatMap(childId => getDescendants(childId, allNodes))];
 };
 
-
-const App: React.FC = () => {
-  const [nodes, setNodes] = useState<NodeData[]>([
+const INITIAL_STATE: CanvasState = {
+  nodes: [
     { id: 'page1', type: 'page', x: 50, y: 50, width: 600, height: 400, title: 'Onboarding', description: '', locked: false },
     { id: 'page2', type: 'page', x: 700, y: 50, width: 600, height: 400, title: 'Main Application', description: '', locked: false },
     { id: 'node3', parentId: 'page1', type: 'state', x: 100, y: 150, width: 250, height: 140, title: 'Login Modal', description: 'Pops up on the start page.', locked: false, variables: [ { id: 'v1', key: 'email', value: '""'}, { id: 'v2', key: 'password', value: '""'} ] },
     { id: 'node2', parentId: 'page2', type: 'state', x: 750, y: 150, width: 250, height: 120, title: 'Dashboard', description: 'User is logged in.', locked: false, variables: [ { id: 'v3', key: 'isLoggedIn', value: 'true'} ] },
-  ]);
-  const [edges, setEdges] = useState<EdgeData[]>([
+  ],
+  edges: [
       { id: 'edge1', sourceId: 'node3', targetId: 'node2', label: 'Successful Login', condition: 'email != "" && password != ""' }
-  ]);
+  ]
+};
+
+const App: React.FC = () => {
+  const { state, setState, resetState, undo, redo, canUndo, canRedo } = useHistoryState(INITIAL_STATE);
+  const { nodes, edges } = state;
+
   const [selectedElement, setSelectedElement] = useState<SelectedElement>(null);
   const [draggingNode, setDraggingNode] = useState<DraggingState>(null);
   const [resizingNode, setResizingNode] = useState<ResizingState>(null);
@@ -51,6 +127,9 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<Version[]>([]);
   const [currentVersionId, setCurrentVersionId] = useState<string | null>(null);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
+
+  const [diffingVersion, setDiffingVersion] = useState<Version | null>(null);
+  const [diffMode, setDiffMode] = useState<'off' | 'simple' | 'detailed'>('simple');
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
@@ -70,15 +149,47 @@ const App: React.FC = () => {
     return [...nodes].sort((a, b) => getDepth(a.id) - getDepth(b.id));
   }, [nodes]);
 
-  const setNodesAndMarkDirty = (updater: React.SetStateAction<NodeData[]>) => {
-    setNodes(updater);
-    setCurrentVersionId(null);
-  };
+  const diffResult = useMemo(() => {
+    if (!diffingVersion) return null;
+    
+    const nodeStatus = new Map<string, DiffStatus>();
+    const edgeStatus = new Map<string, DiffStatus>();
 
-  const setEdgesAndMarkDirty = (updater: React.SetStateAction<EdgeData[]>) => {
-    setEdges(updater);
-    setCurrentVersionId(null);
-  };
+    const oldNodes = new Map(diffingVersion.nodes.map(n => [n.id, n]));
+    const newNodes = new Map(nodes.map(n => [n.id, n]));
+
+    for (const [id, newNode] of newNodes.entries()) {
+        const oldNode = oldNodes.get(id);
+        if (!oldNode) {
+            nodeStatus.set(id, 'added');
+        } else if (JSON.stringify(newNode) !== JSON.stringify(oldNode)) {
+            nodeStatus.set(id, 'modified');
+        } else {
+            nodeStatus.set(id, 'unchanged');
+        }
+    }
+    const ghostNodes = diffingVersion.nodes.filter(n => !newNodes.has(n.id));
+    ghostNodes.forEach(n => nodeStatus.set(n.id, 'deleted'));
+
+
+    const oldEdges = new Map(diffingVersion.edges.map(e => [e.id, e]));
+    const newEdges = new Map(edges.map(e => [e.id, e]));
+
+    for (const [id, newEdge] of newEdges.entries()) {
+        const oldEdge = oldEdges.get(id);
+        if (!oldEdge) {
+            edgeStatus.set(id, 'added');
+        } else if (JSON.stringify(newEdge) !== JSON.stringify(oldEdge)) {
+            edgeStatus.set(id, 'modified');
+        } else {
+            edgeStatus.set(id, 'unchanged');
+        }
+    }
+    const ghostEdges = diffingVersion.edges.filter(e => !newEdges.has(e.id));
+    ghostEdges.forEach(e => edgeStatus.set(e.id, 'deleted'));
+
+    return { nodeStatus, edgeStatus, ghostNodes, ghostEdges };
+  }, [diffingVersion, nodes, edges]);
 
   const getTransformedMouseCoords = useCallback((e: React.MouseEvent | MouseEvent) => {
     if (!canvasRef.current) return { x: 0, y: 0 };
@@ -110,7 +221,8 @@ const App: React.FC = () => {
       locked: false,
       ...(type === 'state' && { variables: [] })
     };
-    setNodesAndMarkDirty(prev => [...prev, newNode]);
+    setState(prev => ({...prev, nodes: [...prev.nodes, newNode]}));
+    setCurrentVersionId(null);
     setSelectedElement({ type: 'node', id: newNodeId });
   }
 
@@ -120,24 +232,26 @@ const App: React.FC = () => {
   const handleDrop = useCallback((e: React.MouseEvent | MouseEvent) => {
     if (!draggingNode) return;
 
-    const draggedNode = nodes.find(n => n.id === draggingNode.id);
-    
-    if (dropTargetId && draggedNode && draggedNode.type !== 'page') {
-        setNodesAndMarkDirty(prev => prev.map(n => n.id === draggingNode.id ? { ...n, parentId: dropTargetId } : n));
-    } else if (draggedNode?.parentId) {
-        const parent = nodes.find(n => n.id === draggedNode.parentId);
-        if(parent) {
-             const transformedCoords = getTransformedMouseCoords(e);
-             const isOutsideParent = transformedCoords.x < parent.x || transformedCoords.x > parent.x + parent.width || transformedCoords.y < parent.y || transformedCoords.y > parent.y + parent.height;
-             if (isOutsideParent) {
-                 setNodesAndMarkDirty(prev => prev.map(n => n.id === draggingNode.id ? { ...n, parentId: null } : n));
-             }
+    setState(prev => {
+        const draggedNode = prev.nodes.find(n => n.id === draggingNode.id);
+        if (dropTargetId && draggedNode && draggedNode.type !== 'page') {
+            return { ...prev, nodes: prev.nodes.map(n => n.id === draggingNode.id ? { ...n, parentId: dropTargetId } : n) };
+        } else if (draggedNode?.parentId) {
+            const parent = prev.nodes.find(n => n.id === draggedNode.parentId);
+            if(parent) {
+                 const transformedCoords = getTransformedMouseCoords(e);
+                 const isOutsideParent = transformedCoords.x < parent.x || transformedCoords.x > parent.x + parent.width || transformedCoords.y < parent.y || transformedCoords.y > parent.y + parent.height;
+                 if (isOutsideParent) {
+                     return { ...prev, nodes: prev.nodes.map(n => n.id === draggingNode.id ? { ...n, parentId: null } : n) };
+                 }
+            }
         }
-    }
-    
+        return prev;
+    });
+    setCurrentVersionId(null);
     setDraggingNode(null);
     setDropTargetId(null);
-  }, [draggingNode, dropTargetId, nodes, getTransformedMouseCoords]);
+  }, [draggingNode, dropTargetId, nodes, getTransformedMouseCoords, setState]);
   
   const handleNodeMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>, nodeId: string) => {
     e.stopPropagation();
@@ -149,7 +263,7 @@ const App: React.FC = () => {
     }
 
     const node = nodes.find(n => n.id === nodeId);
-    if (!node || node.locked) return;
+    if (!node || node.locked || (diffResult && diffResult.nodeStatus.get(node.id) === 'deleted')) return;
     
     if (selectedElement?.type === 'node' && selectedElement.id === nodeId) {
         const transformedCoords = getTransformedMouseCoords(e);
@@ -170,7 +284,7 @@ const App: React.FC = () => {
           descendantInitialPositions,
         });
     }
-  }, [nodes, getTransformedMouseCoords, draggingNode, handleDrop, selectedElement]);
+  }, [nodes, getTransformedMouseCoords, draggingNode, handleDrop, selectedElement, diffResult]);
 
   const handleResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>, nodeId: string) => {
     e.stopPropagation();
@@ -199,11 +313,12 @@ const App: React.FC = () => {
                 label: 'New Interaction',
                 condition: ''
             };
-            setEdgesAndMarkDirty(prev => [...prev, newEdge]);
+            setState(prev => ({...prev, edges: [...prev.edges, newEdge]}));
+            setCurrentVersionId(null);
         }
     }
     setConnectionPreview(null);
-  }, [connectionPreview, nodes]);
+  }, [connectionPreview, nodes, setState]);
 
   const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
     if (draggingNode) {
@@ -233,16 +348,20 @@ const App: React.FC = () => {
         const minWidth = 300;
         const minHeight = 200;
 
-        setNodesAndMarkDirty(prev => prev.map(n => {
-            if (n.id === resizingNode.id) {
-                return {
-                    ...n,
-                    width: Math.max(minWidth, resizingNode.initialWidth + dx),
-                    height: Math.max(minHeight, resizingNode.initialHeight + dy),
-                };
-            }
-            return n;
+        setState(prev => ({
+            ...prev,
+            nodes: prev.nodes.map(n => {
+                if (n.id === resizingNode.id) {
+                    return {
+                        ...n,
+                        width: Math.max(minWidth, resizingNode.initialWidth + dx),
+                        height: Math.max(minHeight, resizingNode.initialHeight + dy),
+                    };
+                }
+                return n;
+            })
         }));
+        setCurrentVersionId(null);
 
     } else if (draggingNode) {
       const newX = transformedCoords.x - draggingNode.offsetX;
@@ -250,8 +369,9 @@ const App: React.FC = () => {
       const dx = newX - draggingNode.initialX;
       const dy = newY - draggingNode.initialY;
 
-      setNodesAndMarkDirty(prev =>
-        prev.map(n => {
+      setState(prev => ({
+          ...prev,
+          nodes: prev.nodes.map(n => {
             if (n.id === draggingNode.id) {
                 return { ...n, x: newX, y: newY };
             }
@@ -260,8 +380,9 @@ const App: React.FC = () => {
                 return { ...n, x: initialPos.x + dx, y: initialPos.y + dy };
             }
             return n;
-        })
-      );
+          })
+      }));
+      setCurrentVersionId(null);
 
       const draggedNode = nodes.find(n => n.id === draggingNode.id);
       if (!draggedNode || draggedNode.type === 'page') {
@@ -291,7 +412,7 @@ const App: React.FC = () => {
     } else if (connectionPreview) {
         setConnectionPreview(prev => prev ? { ...prev, x2: transformedCoords.x, y2: transformedCoords.y } : null);
     }
-  }, [draggingNode, isPanning, panningStartPos, connectionPreview, getTransformedMouseCoords, nodes, resizingNode, transform.scale]);
+  }, [draggingNode, isPanning, panningStartPos, connectionPreview, getTransformedMouseCoords, nodes, resizingNode, transform.scale, setState]);
 
   const handleCanvasClick = useCallback(() => {
     if (wasDroppingRef.current) {
@@ -318,24 +439,33 @@ const App: React.FC = () => {
   }, []);
 
   const handleUpdateElement = useCallback((id: string, type: 'node' | 'edge', data: Partial<NodeData> | Partial<EdgeData>) => {
-      if (type === 'node') {
-          setNodesAndMarkDirty(prev => prev.map(n => n.id === id ? { ...n, ...data } as NodeData : n));
-      } else {
-          setEdgesAndMarkDirty(prev => prev.map(e => e.id === id ? { ...e, ...data } : e));
-      }
-  }, []);
+      setState(prev => {
+          if (type === 'node') {
+              return {...prev, nodes: prev.nodes.map(n => n.id === id ? { ...n, ...data } as NodeData : n)};
+          } else {
+              return {...prev, edges: prev.edges.map(e => e.id === id ? { ...e, ...data } : e)};
+          }
+      });
+      setCurrentVersionId(null);
+  }, [setState]);
 
   const handleDeleteElement = useCallback((id: string, type: 'node' | 'edge') => {
-      if(type === 'node') {
-          const descendantIds = getDescendants(id, nodes);
-          const idsToDelete = [id, ...descendantIds];
-          setNodesAndMarkDirty(prev => prev.filter(n => !idsToDelete.includes(n.id)));
-          setEdgesAndMarkDirty(prev => prev.filter(e => !idsToDelete.includes(e.sourceId) && !idsToDelete.includes(e.targetId)));
-      } else {
-          setEdgesAndMarkDirty(prev => prev.filter(e => e.id !== id));
-      }
+      setState(prev => {
+          if(type === 'node') {
+              const descendantIds = getDescendants(id, prev.nodes);
+              const idsToDelete = [id, ...descendantIds];
+              return {
+                  ...prev,
+                  nodes: prev.nodes.filter(n => !idsToDelete.includes(n.id)),
+                  edges: prev.edges.filter(e => !idsToDelete.includes(e.sourceId) && !idsToDelete.includes(e.targetId))
+              };
+          } else {
+              return {...prev, edges: prev.edges.filter(e => e.id !== id)};
+          }
+      });
+      setCurrentVersionId(null);
       setSelectedElement(null);
-  }, [nodes]);
+  }, [setState]);
   
   const handleStartConnection = useCallback((e: React.MouseEvent, nodeId: string) => {
     e.stopPropagation();
@@ -389,22 +519,46 @@ const App: React.FC = () => {
   const handleLoadVersion = useCallback((versionId: string) => {
     const versionToLoad = history.find(v => v.id === versionId);
     if (versionToLoad) {
-      setNodes(versionToLoad.nodes);
-      setEdges(versionToLoad.edges);
+      resetState({ nodes: versionToLoad.nodes, edges: versionToLoad.edges });
       setCurrentVersionId(versionToLoad.id);
       setSelectedElement(null);
+      setDiffingVersion(null);
     }
-  }, [history]);
+  }, [history, resetState]);
 
   const handleDeleteVersion = useCallback((versionId: string) => {
     setHistory(prev => prev.filter(v => v.id !== versionId));
     if (currentVersionId === versionId) {
       setCurrentVersionId(null);
     }
-  }, [currentVersionId]);
+    if (diffingVersion?.id === versionId) {
+        setDiffingVersion(null);
+    }
+  }, [currentVersionId, diffingVersion]);
+
+  const handleStartDiff = useCallback((versionId: string) => {
+    const versionToDiff = history.find(v => v.id === versionId);
+    if (versionToDiff) {
+        setDiffingVersion(versionToDiff);
+        setDiffMode('simple');
+    }
+  }, [history]);
+
+  const handleClearDiff = () => {
+    setDiffingVersion(null);
+    setDiffMode('off');
+  }
+
+  const handleDiffModeChange = (mode: 'off' | 'simple' | 'detailed') => {
+    if (mode === 'off') {
+        handleClearDiff();
+    } else {
+        setDiffMode(mode);
+    }
+  }
 
   const handleExport = useCallback(() => {
-    const data = JSON.stringify({ nodes, edges, history }, null, 2);
+    const data = JSON.stringify({ ...state, history }, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -414,7 +568,7 @@ const App: React.FC = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [nodes, edges, history]);
+  }, [state, history]);
 
   const handleImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -428,21 +582,19 @@ const App: React.FC = () => {
                 setHistory(data.history);
                 const latestVersion = [...data.history].sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
                 if (latestVersion) {
-                    setNodes(latestVersion.nodes);
-                    setEdges(latestVersion.edges);
+                    resetState({ nodes: latestVersion.nodes, edges: latestVersion.edges });
                     setCurrentVersionId(latestVersion.id);
                 } else {
-                    setNodes([]);
-                    setEdges([]);
+                    resetState({ nodes: [], edges: [] });
                     setCurrentVersionId(null);
                 }
             } else {
-                setNodes(data.nodes);
-                setEdges(data.edges);
+                resetState({ nodes: data.nodes, edges: data.edges });
                 setHistory([]);
                 setCurrentVersionId(null);
             }
             setSelectedElement(null);
+            setDiffingVersion(null);
         } else { alert('Invalid file format.'); }
       } catch (error) {
         alert('Error reading or parsing file.');
@@ -451,15 +603,21 @@ const App: React.FC = () => {
     };
     reader.readAsText(file);
     e.target.value = '';
-  }, []);
+  }, [resetState]);
 
   const triggerImport = () => importFileRef.current?.click();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+      } else if (e.key === 'Escape') {
         if (draggingNode) {
-          setNodesAndMarkDirty(prev => prev.map(n => {
+          setState(prev => ({ ...prev, nodes: prev.nodes.map(n => {
               if (n.id === draggingNode.id) {
                   return { ...n, x: draggingNode.initialX, y: draggingNode.initialY };
               }
@@ -468,7 +626,8 @@ const App: React.FC = () => {
                   return { ...n, x: initialPos.x, y: initialPos.y };
               }
               return n;
-          }));
+          })}));
+          setCurrentVersionId(null);
           setDraggingNode(null);
         }
         if (connectionPreview) setConnectionPreview(null);
@@ -480,7 +639,7 @@ const App: React.FC = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [draggingNode, connectionPreview, dropTargetId]);
+  }, [draggingNode, connectionPreview, dropTargetId, undo, redo, setState]);
 
   useEffect(() => {
     const handleGlobalMouseUp = (e: MouseEvent) => {
@@ -497,15 +656,34 @@ const App: React.FC = () => {
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
   }, [isPanning, resizingNode]);
 
+  const nodesToRender = diffResult ? [...nodes, ...diffResult.ghostNodes] : sortedNodes;
+  const edgesToRender = diffResult ? [...edges, ...diffResult.ghostEdges] : edges;
+
+  const getDiffColor = (status: DiffStatus | undefined, isSelected: boolean) => {
+    if (isSelected) return '#3b82f6';
+    if (diffMode === 'detailed') {
+      if (status === 'added') return '#22c55e'; // green
+      if (status === 'modified') return '#f59e0b'; // yellow
+      if (status === 'deleted') return '#ef4444'; // red
+    }
+     if (diffMode === 'simple' && (status === 'added' || status === 'modified')) {
+       return '#3b82f6'; // blue
+     }
+    return '#64748b'; // default slate
+  }
+
   return (
     <div className="flex h-screen font-sans">
       <HistoryPanel
         isOpen={isHistoryPanelOpen}
         versions={history}
         currentVersionId={currentVersionId}
+        diffingVersionId={diffingVersion?.id || null}
         onSaveVersion={handleSaveVersion}
         onLoadVersion={handleLoadVersion}
         onDeleteVersion={handleDeleteVersion}
+        onStartDiff={handleStartDiff}
+        onClearDiff={handleClearDiff}
         onClose={handleToggleHistory}
       />
       <div 
@@ -526,24 +704,37 @@ const App: React.FC = () => {
           onExport={handleExport} 
           onImport={triggerImport} 
           onToggleHistory={handleToggleHistory}
+          onUndo={undo}
+          onRedo={redo}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          isDiffing={!!diffingVersion}
+          diffMode={diffMode}
+          onDiffModeChange={handleDiffModeChange}
         />
         <input type="file" ref={importFileRef} onChange={handleImport} accept=".json" style={{ display: 'none' }} />
 
         <div className="absolute top-0 left-0" style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`, transformOrigin: '0 0' }}>
-            {sortedNodes.map(node => (
+            {nodesToRender.map(node => {
+              const diffStatus = diffResult?.nodeStatus.get(node.id) || 'unchanged';
+              const isGhost = diffStatus === 'deleted';
+              return (
               <Node
                 key={node.id}
                 data={node}
                 isSelected={selectedElement?.type === 'node' && selectedElement.id === node.id}
                 isParent={nodeIsParent.has(node.id)}
                 isDropTarget={node.id === dropTargetId}
+                diffStatus={diffStatus}
+                diffMode={diffMode}
+                isGhost={isGhost}
                 onMouseDown={handleNodeMouseDown}
                 onMouseUp={handleNodeMouseUp}
                 onClick={handleNodeClick}
                 onStartConnection={handleStartConnection}
                 onResizeStart={handleResizeStart}
               />
-            ))}
+            )})}
         </div>
         
         <svg className="absolute top-0 left-0 w-full h-full pointer-events-none">
@@ -554,12 +745,24 @@ const App: React.FC = () => {
                  <marker id="arrowhead-selected" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill="#3b82f6">
                     <polygon points="0 0, 7 2.5, 0 5" />
                 </marker>
+                 <marker id="arrowhead-added" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill="#22c55e">
+                    <polygon points="0 0, 7 2.5, 0 5" />
+                </marker>
+                 <marker id="arrowhead-modified" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill="#f59e0b">
+                    <polygon points="0 0, 7 2.5, 0 5" />
+                </marker>
+                 <marker id="arrowhead-deleted" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill="#ef4444">
+                    <polygon points="0 0, 7 2.5, 0 5" />
+                </marker>
             </defs>
             <g style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`, transformOrigin: '0 0' }}>
-                {edges.map(edge => {
-                    const sourceNode = nodes.find(n => n.id === edge.sourceId);
-                    const targetNode = nodes.find(n => n.id === edge.targetId);
+                {edgesToRender.map(edge => {
+                    const sourceNode = nodesToRender.find(n => n.id === edge.sourceId);
+                    const targetNode = nodesToRender.find(n => n.id === edge.targetId);
                     if (!sourceNode || !targetNode) return null;
+
+                    const diffStatus = diffResult?.edgeStatus.get(edge.id) || 'unchanged';
+                    const isGhost = diffStatus === 'deleted';
 
                     const x1 = sourceNode.x + sourceNode.width;
                     const y1 = sourceNode.y + sourceNode.height / 2;
@@ -568,20 +771,23 @@ const App: React.FC = () => {
                     const midX = (x1 + x2) / 2;
                     const midY = (y1 + y2) / 2;
                     const isSelected = selectedElement?.type === 'edge' && selectedElement.id === edge.id;
+                    
+                    const strokeColor = getDiffColor(diffStatus, isSelected);
+                    const markerId = isSelected ? 'arrowhead-selected' : diffMode === 'detailed' && diffStatus !== 'unchanged' ? `arrowhead-${diffStatus}` : 'arrowhead';
 
                     return (
-                        <g key={edge.id} className="pointer-events-auto">
+                        <g key={edge.id} className="pointer-events-auto" style={{ opacity: isGhost ? 0.4 : 1 }}>
                             
                              <path 
                                 d={`M ${x1} ${y1} L ${x2} ${y2}`}
-                                stroke={isSelected ? '#3b82f6' : '#64748b'}
+                                stroke={strokeColor}
                                 strokeWidth="2"
-                                markerEnd={isSelected ? 'url(#arrowhead-selected)' : 'url(#arrowhead)'}
+                                markerEnd={`url(#${markerId})`}
                                 className="pointer-events-none"
                             />
                             <foreignObject x={midX - 75} y={midY - 25} width="150" height="50" className="pointer-events-none">
                                 <div 
-                                  className="pointer-events-auto cursor-pointer flex flex-col items-center justify-center h-full"
+                                  className={`pointer-events-auto cursor-pointer flex flex-col items-center justify-center h-full ${isGhost ? 'pointer-events-none' : ''}`}
                                   onClick={(e) => handleEdgeClick(e, edge.id)}
                                 >
                                   <div 
