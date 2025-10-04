@@ -1,0 +1,5 @@
+{
+  "name": "App Flow Visualizer",
+  "description": "A graphical documentation tool to capture and visualize application user flows. Create nodes representing app states and connect them with interactions to build a comprehensive flowchart of your application's behavior.",
+  "requestFramePermissions": []
+}

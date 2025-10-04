@@ -1,0 +1,637 @@
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import type { NodeData, EdgeData, SelectedElement, ConnectionPreview, Version } from './types';
+import Node from './components/Node';
+import PropertiesPanel from './components/PropertiesPanel';
+import Toolbar from './components/Toolbar';
+import HistoryPanel from './components/HistoryPanel';
+
+type DraggingState = { 
+  id: string; 
+  offsetX: number; 
+  offsetY: number; 
+  initialX: number; 
+  initialY: number;
+  descendantInitialPositions: Map<string, { x: number; y: number }>;
+} | null;
+
+type ResizingState = {
+    id: string;
+    initialWidth: number;
+    initialHeight: number;
+    initialMouseX: number;
+    initialMouseY: number;
+} | null;
+
+const getDescendants = (nodeId: string, allNodes: NodeData[]): string[] => {
+    const children = allNodes.filter(n => n.parentId === nodeId).map(n => n.id);
+    return [...children, ...children.flatMap(childId => getDescendants(childId, allNodes))];
+};
+
+
+const App: React.FC = () => {
+  const [nodes, setNodes] = useState<NodeData[]>([
+    { id: 'page1', type: 'page', x: 50, y: 50, width: 600, height: 400, title: 'Onboarding', description: '', locked: false },
+    { id: 'page2', type: 'page', x: 700, y: 50, width: 600, height: 400, title: 'Main Application', description: '', locked: false },
+    { id: 'node3', parentId: 'page1', type: 'state', x: 100, y: 150, width: 250, height: 140, title: 'Login Modal', description: 'Pops up on the start page.', locked: false, variables: [ { id: 'v1', key: 'email', value: '""'}, { id: 'v2', key: 'password', value: '""'} ] },
+    { id: 'node2', parentId: 'page2', type: 'state', x: 750, y: 150, width: 250, height: 120, title: 'Dashboard', description: 'User is logged in.', locked: false, variables: [ { id: 'v3', key: 'isLoggedIn', value: 'true'} ] },
+  ]);
+  const [edges, setEdges] = useState<EdgeData[]>([
+      { id: 'edge1', sourceId: 'node3', targetId: 'node2', label: 'Successful Login', condition: 'email != "" && password != ""' }
+  ]);
+  const [selectedElement, setSelectedElement] = useState<SelectedElement>(null);
+  const [draggingNode, setDraggingNode] = useState<DraggingState>(null);
+  const [resizingNode, setResizingNode] = useState<ResizingState>(null);
+  const [connectionPreview, setConnectionPreview] = useState<ConnectionPreview | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+
+  const [transform, setTransform] = useState({ scale: 1, x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panningStartPos, setPanningStartPos] = useState({ x: 0, y: 0 });
+  
+  const [history, setHistory] = useState<Version[]>([]);
+  const [currentVersionId, setCurrentVersionId] = useState<string | null>(null);
+  const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
+
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const didPan = useRef(false);
+  const wasDroppingRef = useRef(false);
+
+  const nodeIsParent = useMemo(() => new Set(nodes.map(n => n.parentId).filter(Boolean)), [nodes]);
+
+  const sortedNodes = useMemo(() => {
+    const nodeMap = new Map(nodes.map(node => [node.id, node]));
+    const getDepth = (nodeId: string | null | undefined): number => {
+        if (!nodeId) return 0;
+        const node = nodeMap.get(nodeId);
+        if (!node) return 0;
+        return 1 + getDepth(node.parentId);
+    };
+    return [...nodes].sort((a, b) => getDepth(a.id) - getDepth(b.id));
+  }, [nodes]);
+
+  const setNodesAndMarkDirty = (updater: React.SetStateAction<NodeData[]>) => {
+    setNodes(updater);
+    setCurrentVersionId(null);
+  };
+
+  const setEdgesAndMarkDirty = (updater: React.SetStateAction<EdgeData[]>) => {
+    setEdges(updater);
+    setCurrentVersionId(null);
+  };
+
+  const getTransformedMouseCoords = useCallback((e: React.MouseEvent | MouseEvent) => {
+    if (!canvasRef.current) return { x: 0, y: 0 };
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - canvasRect.left;
+    const mouseY = e.clientY - canvasRect.top;
+    return {
+      x: (mouseX - transform.x) / transform.scale,
+      y: (mouseY - transform.y) / transform.scale,
+    };
+  }, [transform]);
+
+  const addNode = (type: 'page' | 'state') => {
+    const newNodeId = `node_${crypto.randomUUID()}`;
+    const canvasRect = canvasRef.current?.getBoundingClientRect() || { width: window.innerWidth, height: window.innerHeight };
+    const centerX = (canvasRect.width / 2 - transform.x) / transform.scale;
+    const centerY = (canvasRect.height / 2 - transform.y) / transform.scale;
+
+    const isPage = type === 'page';
+    const newNode: NodeData = {
+      id: newNodeId,
+      type,
+      x: centerX - (isPage ? 300 : 125),
+      y: centerY - (isPage ? 200 : 60),
+      width: isPage ? 600 : 250,
+      height: isPage ? 400 : 120,
+      title: isPage ? 'New Page' : 'New State',
+      description: isPage ? '' : 'Describe this application state.',
+      locked: false,
+      ...(type === 'state' && { variables: [] })
+    };
+    setNodesAndMarkDirty(prev => [...prev, newNode]);
+    setSelectedElement({ type: 'node', id: newNodeId });
+  }
+
+  const handleAddStateNode = () => addNode('state');
+  const handleAddPageNode = () => addNode('page');
+
+  const handleDrop = useCallback((e: React.MouseEvent | MouseEvent) => {
+    if (!draggingNode) return;
+
+    const draggedNode = nodes.find(n => n.id === draggingNode.id);
+    
+    if (dropTargetId && draggedNode && draggedNode.type !== 'page') {
+        setNodesAndMarkDirty(prev => prev.map(n => n.id === draggingNode.id ? { ...n, parentId: dropTargetId } : n));
+    } else if (draggedNode?.parentId) {
+        const parent = nodes.find(n => n.id === draggedNode.parentId);
+        if(parent) {
+             const transformedCoords = getTransformedMouseCoords(e);
+             const isOutsideParent = transformedCoords.x < parent.x || transformedCoords.x > parent.x + parent.width || transformedCoords.y < parent.y || transformedCoords.y > parent.y + parent.height;
+             if (isOutsideParent) {
+                 setNodesAndMarkDirty(prev => prev.map(n => n.id === draggingNode.id ? { ...n, parentId: null } : n));
+             }
+        }
+    }
+    
+    setDraggingNode(null);
+    setDropTargetId(null);
+  }, [draggingNode, dropTargetId, nodes, getTransformedMouseCoords]);
+  
+  const handleNodeMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>, nodeId: string) => {
+    e.stopPropagation();
+
+    if (draggingNode) {
+        handleDrop(e);
+        wasDroppingRef.current = true;
+        return;
+    }
+
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node || node.locked) return;
+    
+    if (selectedElement?.type === 'node' && selectedElement.id === nodeId) {
+        const transformedCoords = getTransformedMouseCoords(e);
+        const descendantIds = getDescendants(nodeId, nodes);
+        const descendantInitialPositions = new Map<string, {x: number, y: number}>();
+        nodes.forEach(n => {
+            if(descendantIds.includes(n.id)) {
+                descendantInitialPositions.set(n.id, { x: n.x, y: n.y });
+            }
+        });
+
+        setDraggingNode({
+          id: nodeId,
+          offsetX: transformedCoords.x - node.x,
+          offsetY: transformedCoords.y - node.y,
+          initialX: node.x,
+          initialY: node.y,
+          descendantInitialPositions,
+        });
+    }
+  }, [nodes, getTransformedMouseCoords, draggingNode, handleDrop, selectedElement]);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>, nodeId: string) => {
+    e.stopPropagation();
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node || node.locked) return;
+
+    setResizingNode({
+        id: nodeId,
+        initialWidth: node.width,
+        initialHeight: node.height,
+        initialMouseX: e.clientX / transform.scale,
+        initialMouseY: e.clientY / transform.scale,
+    });
+
+  }, [nodes, transform.scale]);
+
+  const handleNodeMouseUp = useCallback((e: React.MouseEvent, nodeId: string) => {
+    e.stopPropagation();
+    if (connectionPreview && connectionPreview.sourceId !== nodeId) {
+        const targetNode = nodes.find(n => n.id === nodeId);
+        if (targetNode?.type !== 'page') {
+             const newEdge: EdgeData = {
+                id: `edge_${crypto.randomUUID()}`,
+                sourceId: connectionPreview.sourceId,
+                targetId: nodeId,
+                label: 'New Interaction',
+                condition: ''
+            };
+            setEdgesAndMarkDirty(prev => [...prev, newEdge]);
+        }
+    }
+    setConnectionPreview(null);
+  }, [connectionPreview, nodes]);
+
+  const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
+    if (draggingNode) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleDrop(e);
+        wasDroppingRef.current = true;
+        return;
+    }
+
+    if (e.button !== 0) return;
+
+    e.preventDefault();
+    setIsPanning(true);
+    setPanningStartPos({ x: e.clientX - transform.x, y: e.clientY - transform.y });
+    didPan.current = false;
+    if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing';
+    
+  }, [transform, draggingNode, handleDrop]);
+
+  const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const transformedCoords = getTransformedMouseCoords(e);
+
+    if (resizingNode) {
+        const dx = e.clientX / transform.scale - resizingNode.initialMouseX;
+        const dy = e.clientY / transform.scale - resizingNode.initialMouseY;
+        const minWidth = 300;
+        const minHeight = 200;
+
+        setNodesAndMarkDirty(prev => prev.map(n => {
+            if (n.id === resizingNode.id) {
+                return {
+                    ...n,
+                    width: Math.max(minWidth, resizingNode.initialWidth + dx),
+                    height: Math.max(minHeight, resizingNode.initialHeight + dy),
+                };
+            }
+            return n;
+        }));
+
+    } else if (draggingNode) {
+      const newX = transformedCoords.x - draggingNode.offsetX;
+      const newY = transformedCoords.y - draggingNode.offsetY;
+      const dx = newX - draggingNode.initialX;
+      const dy = newY - draggingNode.initialY;
+
+      setNodesAndMarkDirty(prev =>
+        prev.map(n => {
+            if (n.id === draggingNode.id) {
+                return { ...n, x: newX, y: newY };
+            }
+            const initialPos = draggingNode.descendantInitialPositions.get(n.id);
+            if(initialPos) {
+                return { ...n, x: initialPos.x + dx, y: initialPos.y + dy };
+            }
+            return n;
+        })
+      );
+
+      const draggedNode = nodes.find(n => n.id === draggingNode.id);
+      if (!draggedNode || draggedNode.type === 'page') {
+        setDropTargetId(null);
+        return;
+      };
+      
+      const descendantsOfDragged = getDescendants(draggingNode.id, nodes);
+      const potentialDropTarget = nodes.find(node => 
+        !node.locked &&
+        node.id !== draggingNode.id &&
+        !descendantsOfDragged.includes(node.id) &&
+        transformedCoords.x >= node.x &&
+        transformedCoords.x <= node.x + node.width &&
+        transformedCoords.y >= node.y &&
+        transformedCoords.y <= node.y + node.height
+      );
+      setDropTargetId(potentialDropTarget ? potentialDropTarget.id : null);
+
+    } else if (isPanning) {
+        didPan.current = true;
+        setTransform(prev => ({
+            ...prev,
+            x: e.clientX - panningStartPos.x,
+            y: e.clientY - panningStartPos.y,
+        }));
+    } else if (connectionPreview) {
+        setConnectionPreview(prev => prev ? { ...prev, x2: transformedCoords.x, y2: transformedCoords.y } : null);
+    }
+  }, [draggingNode, isPanning, panningStartPos, connectionPreview, getTransformedMouseCoords, nodes, resizingNode, transform.scale]);
+
+  const handleCanvasClick = useCallback(() => {
+    if (wasDroppingRef.current) {
+        wasDroppingRef.current = false;
+        return;
+    }
+    if (!didPan.current) {
+        setSelectedElement(null);
+    }
+  }, []);
+
+  const handleNodeClick = useCallback((e: React.MouseEvent<HTMLDivElement>, nodeId: string) => {
+    e.stopPropagation();
+    if (wasDroppingRef.current) {
+        wasDroppingRef.current = false;
+        return;
+    }
+    setSelectedElement({ type: 'node', id: nodeId });
+  }, []);
+
+  const handleEdgeClick = useCallback((e: React.MouseEvent, edgeId: string) => {
+      e.stopPropagation();
+      setSelectedElement({ type: 'edge', id: edgeId });
+  }, []);
+
+  const handleUpdateElement = useCallback((id: string, type: 'node' | 'edge', data: Partial<NodeData> | Partial<EdgeData>) => {
+      if (type === 'node') {
+          setNodesAndMarkDirty(prev => prev.map(n => n.id === id ? { ...n, ...data } as NodeData : n));
+      } else {
+          setEdgesAndMarkDirty(prev => prev.map(e => e.id === id ? { ...e, ...data } : e));
+      }
+  }, []);
+
+  const handleDeleteElement = useCallback((id: string, type: 'node' | 'edge') => {
+      if(type === 'node') {
+          const descendantIds = getDescendants(id, nodes);
+          const idsToDelete = [id, ...descendantIds];
+          setNodesAndMarkDirty(prev => prev.filter(n => !idsToDelete.includes(n.id)));
+          setEdgesAndMarkDirty(prev => prev.filter(e => !idsToDelete.includes(e.sourceId) && !idsToDelete.includes(e.targetId)));
+      } else {
+          setEdgesAndMarkDirty(prev => prev.filter(e => e.id !== id));
+      }
+      setSelectedElement(null);
+  }, [nodes]);
+  
+  const handleStartConnection = useCallback((e: React.MouseEvent, nodeId: string) => {
+    e.stopPropagation();
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node || node.type === 'page') return;
+
+    const transformedCoords = getTransformedMouseCoords(e);
+    const startX = node.x + node.width;
+    const startY = node.y + node.height / 2;
+    
+    setConnectionPreview({
+      sourceId: nodeId,
+      x1: startX,
+      y1: startY,
+      x2: transformedCoords.x,
+      y2: transformedCoords.y,
+    });
+  }, [nodes, getTransformedMouseCoords]);
+
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    if (!canvasRef.current) return;
+    e.preventDefault();
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - canvasRect.left;
+    const mouseY = e.clientY - canvasRect.top;
+    const scaleAmount = -e.deltaY * 0.001;
+    const newScale = Math.min(Math.max(0.2, transform.scale + scaleAmount), 3);
+    const worldX = (mouseX - transform.x) / transform.scale;
+    const worldY = (mouseY - transform.y) / transform.scale;
+    const newX = mouseX - worldX * newScale;
+    const newY = mouseY - worldY * newScale;
+    setTransform({ scale: newScale, x: newX, y: newY });
+  }, [transform]);
+
+  const handleToggleHistory = () => {
+    setIsHistoryPanelOpen(prev => !prev);
+  };
+
+  const handleSaveVersion = useCallback((name: string) => {
+    const newVersion: Version = {
+      id: crypto.randomUUID(),
+      name,
+      timestamp: new Date().toISOString(),
+      nodes,
+      edges,
+    };
+    setHistory(prev => [...prev, newVersion]);
+    setCurrentVersionId(newVersion.id);
+  }, [nodes, edges]);
+
+  const handleLoadVersion = useCallback((versionId: string) => {
+    const versionToLoad = history.find(v => v.id === versionId);
+    if (versionToLoad) {
+      setNodes(versionToLoad.nodes);
+      setEdges(versionToLoad.edges);
+      setCurrentVersionId(versionToLoad.id);
+      setSelectedElement(null);
+    }
+  }, [history]);
+
+  const handleDeleteVersion = useCallback((versionId: string) => {
+    setHistory(prev => prev.filter(v => v.id !== versionId));
+    if (currentVersionId === versionId) {
+      setCurrentVersionId(null);
+    }
+  }, [currentVersionId]);
+
+  const handleExport = useCallback(() => {
+    const data = JSON.stringify({ nodes, edges, history }, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'app-flow-history.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [nodes, edges, history]);
+
+  const handleImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        if (data && Array.isArray(data.nodes) && Array.isArray(data.edges)) {
+            if (Array.isArray(data.history)) {
+                setHistory(data.history);
+                const latestVersion = [...data.history].sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+                if (latestVersion) {
+                    setNodes(latestVersion.nodes);
+                    setEdges(latestVersion.edges);
+                    setCurrentVersionId(latestVersion.id);
+                } else {
+                    setNodes([]);
+                    setEdges([]);
+                    setCurrentVersionId(null);
+                }
+            } else {
+                setNodes(data.nodes);
+                setEdges(data.edges);
+                setHistory([]);
+                setCurrentVersionId(null);
+            }
+            setSelectedElement(null);
+        } else { alert('Invalid file format.'); }
+      } catch (error) {
+        alert('Error reading or parsing file.');
+        console.error(error);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }, []);
+
+  const triggerImport = () => importFileRef.current?.click();
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (draggingNode) {
+          setNodesAndMarkDirty(prev => prev.map(n => {
+              if (n.id === draggingNode.id) {
+                  return { ...n, x: draggingNode.initialX, y: draggingNode.initialY };
+              }
+              const initialPos = draggingNode.descendantInitialPositions.get(n.id);
+              if (initialPos) {
+                  return { ...n, x: initialPos.x, y: initialPos.y };
+              }
+              return n;
+          }));
+          setDraggingNode(null);
+        }
+        if (connectionPreview) setConnectionPreview(null);
+        if (dropTargetId) setDropTargetId(null);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [draggingNode, connectionPreview, dropTargetId]);
+
+  useEffect(() => {
+    const handleGlobalMouseUp = (e: MouseEvent) => {
+      if (isPanning && e.button === 0) {
+          setIsPanning(false);
+          if (canvasRef.current) canvasRef.current.style.cursor = 'default';
+      }
+      if (resizingNode) {
+        setResizingNode(null);
+      }
+      setConnectionPreview(null);
+    };
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, [isPanning, resizingNode]);
+
+  return (
+    <div className="flex h-screen font-sans">
+      <HistoryPanel
+        isOpen={isHistoryPanelOpen}
+        versions={history}
+        currentVersionId={currentVersionId}
+        onSaveVersion={handleSaveVersion}
+        onLoadVersion={handleLoadVersion}
+        onDeleteVersion={handleDeleteVersion}
+        onClose={handleToggleHistory}
+      />
+      <div 
+        ref={canvasRef}
+        className="flex-grow h-full relative overflow-hidden bg-slate-100"
+        onMouseMove={handleCanvasMouseMove}
+        onMouseDown={handleCanvasMouseDown}
+        onClick={handleCanvasClick}
+        onWheel={handleWheel}
+        style={{
+          backgroundImage: 'radial-gradient(#d1d5db 1px, transparent 1px)',
+          backgroundSize: '1.5rem 1.5rem',
+        }}
+      >
+        <Toolbar 
+          onAddStateNode={handleAddStateNode} 
+          onAddPageNode={handleAddPageNode} 
+          onExport={handleExport} 
+          onImport={triggerImport} 
+          onToggleHistory={handleToggleHistory}
+        />
+        <input type="file" ref={importFileRef} onChange={handleImport} accept=".json" style={{ display: 'none' }} />
+
+        <div className="absolute top-0 left-0" style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`, transformOrigin: '0 0' }}>
+            {sortedNodes.map(node => (
+              <Node
+                key={node.id}
+                data={node}
+                isSelected={selectedElement?.type === 'node' && selectedElement.id === node.id}
+                isParent={nodeIsParent.has(node.id)}
+                isDropTarget={node.id === dropTargetId}
+                onMouseDown={handleNodeMouseDown}
+                onMouseUp={handleNodeMouseUp}
+                onClick={handleNodeClick}
+                onStartConnection={handleStartConnection}
+                onResizeStart={handleResizeStart}
+              />
+            ))}
+        </div>
+        
+        <svg className="absolute top-0 left-0 w-full h-full pointer-events-none">
+            <defs>
+                <marker id="arrowhead" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill="#64748b">
+                    <polygon points="0 0, 7 2.5, 0 5" />
+                </marker>
+                 <marker id="arrowhead-selected" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill="#3b82f6">
+                    <polygon points="0 0, 7 2.5, 0 5" />
+                </marker>
+            </defs>
+            <g style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`, transformOrigin: '0 0' }}>
+                {edges.map(edge => {
+                    const sourceNode = nodes.find(n => n.id === edge.sourceId);
+                    const targetNode = nodes.find(n => n.id === edge.targetId);
+                    if (!sourceNode || !targetNode) return null;
+
+                    const x1 = sourceNode.x + sourceNode.width;
+                    const y1 = sourceNode.y + sourceNode.height / 2;
+                    const x2 = targetNode.x;
+                    const y2 = targetNode.y + targetNode.height / 2;
+                    const midX = (x1 + x2) / 2;
+                    const midY = (y1 + y2) / 2;
+                    const isSelected = selectedElement?.type === 'edge' && selectedElement.id === edge.id;
+
+                    return (
+                        <g key={edge.id} className="pointer-events-auto">
+                            
+                             <path 
+                                d={`M ${x1} ${y1} L ${x2} ${y2}`}
+                                stroke={isSelected ? '#3b82f6' : '#64748b'}
+                                strokeWidth="2"
+                                markerEnd={isSelected ? 'url(#arrowhead-selected)' : 'url(#arrowhead)'}
+                                className="pointer-events-none"
+                            />
+                            <foreignObject x={midX - 75} y={midY - 25} width="150" height="50" className="pointer-events-none">
+                                <div 
+                                  className="pointer-events-auto cursor-pointer flex flex-col items-center justify-center h-full"
+                                  onClick={(e) => handleEdgeClick(e, edge.id)}
+                                >
+                                  <div 
+                                    className="px-2 py-1 rounded-md text-sm font-medium"
+                                    style={{
+                                      backgroundColor: 'white',
+                                      color: '#334155',
+                                      border: `1px solid ${isSelected ? '#3b82f6' : '#cbd5e1'}`
+                                    }}
+                                  >
+                                    {edge.label}
+                                  </div>
+                                  {edge.condition && (
+                                     <div className="mt-1 px-1.5 py-0.5 rounded-full text-xs font-mono truncate max-w-full"
+                                      style={{
+                                        backgroundColor: '#eef2ff',
+                                        color: '#4338ca',
+                                      }}
+                                      title={edge.condition}
+                                     >
+                                        {edge.condition}
+                                     </div>
+                                  )}
+                                </div>
+                            </foreignObject>
+                        </g>
+                    );
+                })}
+                {connectionPreview && (
+                     <path 
+                        d={`M ${connectionPreview.x1} ${connectionPreview.y1} L ${connectionPreview.x2} ${connectionPreview.y2}`}
+                        stroke="#3b82f6"
+                        strokeWidth="2"
+                        strokeDasharray="5,5"
+                        markerEnd="url(#arrowhead-selected)"
+                    />
+                )}
+            </g>
+        </svg>
+
+      </div>
+      <PropertiesPanel 
+        selectedElement={selectedElement} 
+        nodes={nodes} 
+        edges={edges}
+        onUpdateElement={handleUpdateElement}
+        onDeleteElement={handleDeleteElement}
+      />
+    </div>
+  );
+};
+
+export default App;
