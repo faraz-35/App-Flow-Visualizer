@@ -4,6 +4,7 @@ import Node from './components/Node';
 import PropertiesPanel from './components/PropertiesPanel';
 import Toolbar from './components/Toolbar';
 import HistoryPanel from './components/HistoryPanel';
+import DocsPanel from './components/DocsPanel';
 import { UndoIcon, RedoIcon } from './components/IconComponents';
 
 type CanvasState = {
@@ -21,7 +22,6 @@ const useHistoryState = (initialState: CanvasState) => {
     const canUndo = state.past.length > 0;
     const canRedo = state.future.length > 0;
 
-    // FIX: Corrected syntax for useCallback. Removed extra parenthesis before the arrow function.
     const setState = useCallback((newStateFn: (prevState: CanvasState) => CanvasState) => {
         _setState(currentState => {
             const newPresent = newStateFn(currentState.present);
@@ -100,8 +100,8 @@ const getDescendants = (nodeId: string, allNodes: NodeData[]): string[] => {
 
 const INITIAL_STATE: CanvasState = {
   nodes: [
-    { id: 'page1', type: 'page', x: 50, y: 50, width: 600, height: 400, title: 'Onboarding', description: '', locked: false },
-    { id: 'page2', type: 'page', x: 700, y: 50, width: 600, height: 400, title: 'Main Application', description: '', locked: false },
+    { id: 'page1', type: 'page', x: 50, y: 50, width: 600, height: 400, title: 'Onboarding', description: '', locked: false, docs: 'This page handles the entire user onboarding flow, including login and registration.' },
+    { id: 'page2', type: 'page', x: 700, y: 50, width: 600, height: 400, title: 'Main Application', description: '', locked: false, docs: '' },
     { id: 'node3', parentId: 'page1', type: 'state', x: 100, y: 150, width: 250, height: 140, title: 'Login Modal', description: 'Pops up on the start page.', locked: false, variables: [ { id: 'v1', key: 'email', value: '""'}, { id: 'v2', key: 'password', value: '""'} ] },
     { id: 'node2', parentId: 'page2', type: 'state', x: 750, y: 150, width: 250, height: 120, title: 'Dashboard', description: 'User is logged in.', locked: false, variables: [ { id: 'v3', key: 'isLoggedIn', value: 'true'} ] },
   ],
@@ -127,6 +127,7 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<Version[]>([]);
   const [currentVersionId, setCurrentVersionId] = useState<string | null>(null);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
+  const [openDocsNodeId, setOpenDocsNodeId] = useState<string | null>(null);
 
   const [diffingVersion, setDiffingVersion] = useState<Version | null>(null);
   const [diffMode, setDiffMode] = useState<'off' | 'simple' | 'detailed'>('simple');
@@ -219,6 +220,7 @@ const App: React.FC = () => {
       title: isPage ? 'New Page' : 'New State',
       description: isPage ? '' : 'Describe this application state.',
       locked: false,
+      ...(isPage && { docs: '' }),
       ...(type === 'state' && { variables: [] })
     };
     setState(prev => ({...prev, nodes: [...prev.nodes, newNode]}));
@@ -251,7 +253,7 @@ const App: React.FC = () => {
     setCurrentVersionId(null);
     setDraggingNode(null);
     setDropTargetId(null);
-  }, [draggingNode, dropTargetId, nodes, getTransformedMouseCoords, setState]);
+  }, [draggingNode, dropTargetId, getTransformedMouseCoords, setState]);
   
   const handleNodeMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>, nodeId: string) => {
     e.stopPropagation();
@@ -421,6 +423,7 @@ const App: React.FC = () => {
     }
     if (!didPan.current) {
         setSelectedElement(null);
+        setOpenDocsNodeId(null);
     }
   }, []);
 
@@ -430,12 +433,16 @@ const App: React.FC = () => {
         wasDroppingRef.current = false;
         return;
     }
+    if (openDocsNodeId && openDocsNodeId !== nodeId) {
+      setOpenDocsNodeId(null);
+    }
     setSelectedElement({ type: 'node', id: nodeId });
-  }, []);
+  }, [openDocsNodeId]);
 
   const handleEdgeClick = useCallback((e: React.MouseEvent, edgeId: string) => {
       e.stopPropagation();
       setSelectedElement({ type: 'edge', id: edgeId });
+      setOpenDocsNodeId(null);
   }, []);
 
   const handleUpdateElement = useCallback((id: string, type: 'node' | 'edge', data: Partial<NodeData> | Partial<EdgeData>) => {
@@ -502,6 +509,17 @@ const App: React.FC = () => {
 
   const handleToggleHistory = () => {
     setIsHistoryPanelOpen(prev => !prev);
+  };
+  
+  const handleToggleDocs = (nodeId: string) => {
+    if (openDocsNodeId !== nodeId) {
+      setSelectedElement({ type: 'node', id: nodeId });
+    }
+    setOpenDocsNodeId(prev => (prev === nodeId ? null : nodeId));
+  };
+  
+  const handleUpdateDocs = (nodeId: string, docs: string) => {
+    handleUpdateElement(nodeId, 'node', { docs });
   };
 
   const handleSaveVersion = useCallback((name: string) => {
@@ -621,6 +639,7 @@ const App: React.FC = () => {
               if (n.id === draggingNode.id) {
                   return { ...n, x: draggingNode.initialX, y: draggingNode.initialY };
               }
+              // Fix: Changed `dragging` to `draggingNode` to fix reference error.
               const initialPos = draggingNode.descendantInitialPositions.get(n.id);
               if (initialPos) {
                   return { ...n, x: initialPos.x, y: initialPos.y };
@@ -632,6 +651,7 @@ const App: React.FC = () => {
         }
         if (connectionPreview) setConnectionPreview(null);
         if (dropTargetId) setDropTargetId(null);
+        if (openDocsNodeId) setOpenDocsNodeId(null);
       }
     };
     
@@ -639,7 +659,7 @@ const App: React.FC = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [draggingNode, connectionPreview, dropTargetId, undo, redo, setState]);
+  }, [draggingNode, connectionPreview, dropTargetId, undo, redo, setState, openDocsNodeId]);
 
   useEffect(() => {
     const handleGlobalMouseUp = (e: MouseEvent) => {
@@ -734,8 +754,17 @@ const App: React.FC = () => {
                 onClick={handleNodeClick}
                 onStartConnection={handleStartConnection}
                 onResizeStart={handleResizeStart}
+                onToggleDocs={handleToggleDocs}
               />
             )})}
+            
+            {openDocsNodeId && nodes.find(n => n.id === openDocsNodeId) && (
+                <DocsPanel
+                    node={nodes.find(n => n.id === openDocsNodeId)!}
+                    onClose={() => setOpenDocsNodeId(null)}
+                    onUpdateDocs={handleUpdateDocs}
+                />
+            )}
         </div>
         
         <svg className="absolute top-0 left-0 w-full h-full pointer-events-none">

@@ -16,6 +16,7 @@ export interface NodeData {
   type: 'page' | 'state';
   locked?: boolean;
   variables?: StateVariable[];
+  docs?: string;
 }
 
 export interface EdgeData {

@@ -1,5 +1,6 @@
 import React from 'react';
 import type { NodeData, DiffStatus } from '../types';
+import { DocsIcon } from './IconComponents';
 
 interface NodeProps {
   data: NodeData;
@@ -14,12 +15,13 @@ interface NodeProps {
   onClick: (e: React.MouseEvent<HTMLDivElement>, nodeId: string) => void;
   onStartConnection: (e: React.MouseEvent<HTMLDivElement>, nodeId: string) => void;
   onResizeStart: (e: React.MouseEvent<HTMLDivElement>, nodeId: string) => void;
+  onToggleDocs: (nodeId: string) => void;
 }
 
 const Node: React.FC<NodeProps> = ({ 
   data, isSelected, isParent, isDropTarget, 
   diffStatus, diffMode, isGhost,
-  onMouseDown, onMouseUp, onClick, onStartConnection, onResizeStart 
+  onMouseDown, onMouseUp, onClick, onStartConnection, onResizeStart, onToggleDocs
 }) => {
   const { x, y, width, height, title, description, type, locked, variables } = data;
   const cursorClass = locked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing';
@@ -41,15 +43,27 @@ const Node: React.FC<NodeProps> = ({
   if (type === 'page') {
       return (
           <div
-              className={`absolute rounded-lg border border-slate-400 shadow-lg ${isSelected ? 'ring-2 ring-blue-500 border-blue-500' : ''} ${diffRingClass} transition-all duration-150 ${cursorClass} bg-slate-50/70 ${ghostClass}`}
+              className={`absolute rounded-lg border border-slate-400 shadow-lg ${isSelected ? 'ring-2 ring-blue-500 border-blue-500' : ''} ${diffRingClass} transition-all duration-150 ${cursorClass} bg-slate-50/70 ${ghostClass} flex flex-col`}
               style={{ left: x, top: y, width, height }}
               onMouseDown={(e) => onMouseDown(e, data.id)}
               onClick={(e) => onClick(e, data.id)}
           >
-              <div className="px-4 py-2 bg-slate-200 rounded-t-lg border-b border-slate-400">
+              <div className="px-4 py-2 bg-slate-200 rounded-t-lg border-b border-slate-400 flex justify-between items-center">
                   <h3 className="font-bold text-slate-800 text-md truncate">{title}</h3>
+                  {!isGhost && (
+                    <button 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleDocs(data.id);
+                        }}
+                        className="p-1 text-slate-500 hover:bg-slate-300 rounded-full"
+                        title="View/Edit Documentation"
+                    >
+                        <DocsIcon /> 
+                    </button>
+                  )}
               </div>
-              <div className="p-2 h-full w-full">
+              <div className="p-2 flex-grow">
                 {/* Content area for child nodes */}
               </div>
               {isSelected && !locked && !isGhost && (
