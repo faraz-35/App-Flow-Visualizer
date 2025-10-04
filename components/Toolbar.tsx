@@ -1,5 +1,5 @@
 import React from 'react';
-import { PlusIcon, ExportIcon, ImportIcon, PageIcon, HistoryIcon, UndoIcon, RedoIcon } from './IconComponents';
+import { PlusIcon, ExportIcon, ImportIcon, PageIcon, HistoryIcon, UndoIcon, RedoIcon, SunIcon, MoonIcon } from './IconComponents';
 
 interface ToolbarProps {
   onAddStateNode: () => void;
@@ -15,6 +15,8 @@ interface ToolbarProps {
   diffMode: 'off' | 'simple' | 'detailed';
   onDiffModeChange: (mode: 'off' | 'simple' | 'detailed') => void;
   isHistoryPanelOpen: boolean;
+  theme: 'light' | 'dark';
+  onToggleTheme: () => void;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({ 
@@ -30,7 +32,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
   isDiffing,
   diffMode,
   onDiffModeChange,
-  isHistoryPanelOpen
+  isHistoryPanelOpen,
+  theme,
+  onToggleTheme
 }) => {
 
   const handleToggleDiffMode = () => {
@@ -48,19 +52,19 @@ const Toolbar: React.FC<ToolbarProps> = ({
   }
 
   return (
-    <div className={`absolute top-4 left-4 z-30 bg-white p-2 rounded-lg shadow-md border border-slate-200 flex space-x-1 items-center transition-transform duration-300 ease-in-out ${isHistoryPanelOpen ? 'translate-x-[21rem]' : ''}`}>
+    <div className={`absolute top-4 left-4 z-30 bg-white dark:bg-slate-800 p-2 rounded-lg shadow-md border border-slate-200 dark:border-slate-700 flex space-x-1 items-center transition-transform duration-300 ease-in-out ${isHistoryPanelOpen ? 'translate-x-[21rem]' : ''}`}>
       <button
         onClick={onToggleHistory}
-        className="p-2 text-slate-700 hover:bg-slate-100 rounded-md"
+        className="p-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"
         title="View Version History"
       >
         <HistoryIcon />
       </button>
-      <div className="border-l border-slate-200 h-8 my-auto"></div>
+      <div className="border-l border-slate-200 dark:border-slate-700 h-8 my-auto"></div>
        <button
         onClick={onUndo}
         disabled={!canUndo}
-        className="p-2 text-slate-700 hover:bg-slate-100 rounded-md disabled:text-slate-300 disabled:cursor-not-allowed"
+        className="p-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md disabled:text-slate-400 dark:disabled:text-slate-500 disabled:cursor-not-allowed"
         title="Undo"
       >
         <UndoIcon />
@@ -68,15 +72,15 @@ const Toolbar: React.FC<ToolbarProps> = ({
        <button
         onClick={onRedo}
         disabled={!canRedo}
-        className="p-2 text-slate-700 hover:bg-slate-100 rounded-md disabled:text-slate-300 disabled:cursor-not-allowed"
+        className="p-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md disabled:text-slate-400 dark:disabled:text-slate-500 disabled:cursor-not-allowed"
         title="Redo"
       >
         <RedoIcon />
       </button>
-      <div className="border-l border-slate-200 h-8 my-auto"></div>
+      <div className="border-l border-slate-200 dark:border-slate-700 h-8 my-auto"></div>
       <button
         onClick={onAddPageNode}
-        className="flex items-center space-x-2 px-3 py-2 text-slate-700 hover:bg-slate-100 rounded-md"
+        className="flex items-center space-x-2 px-3 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"
         title="Add new page container"
       >
         <PageIcon />
@@ -84,33 +88,41 @@ const Toolbar: React.FC<ToolbarProps> = ({
       </button>
       <button
         onClick={onAddStateNode}
-        className="flex items-center space-x-2 px-3 py-2 text-slate-700 hover:bg-slate-100 rounded-md"
+        className="flex items-center space-x-2 px-3 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"
         title="Add new state"
       >
         <PlusIcon />
         <span className="text-sm font-medium">Add State</span>
       </button>
-      <div className="border-l border-slate-200 h-8 my-auto"></div>
+      <div className="border-l border-slate-200 dark:border-slate-700 h-8 my-auto"></div>
       <button
         onClick={onImport}
-        className="p-2 text-slate-700 hover:bg-slate-100 rounded-md"
+        className="p-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"
         title="Import Flow (.json)"
       >
         <ImportIcon />
       </button>
       <button
         onClick={onExport}
-        className="p-2 text-slate-700 hover:bg-slate-100 rounded-md"
+        className="p-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"
         title="Export Flow (.json)"
       >
         <ExportIcon />
       </button>
+      <div className="border-l border-slate-200 dark:border-slate-700 h-8 my-auto"></div>
+      <button
+        onClick={onToggleTheme}
+        className="p-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"
+        title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+      >
+        {theme === 'light' ? <MoonIcon /> : <SunIcon />}
+      </button>
       {isDiffing && diffMode !== 'off' && (
          <>
-          <div className="border-l border-slate-200 h-8 my-auto"></div>
+          <div className="border-l border-slate-200 dark:border-slate-700 h-8 my-auto"></div>
             <button
               onClick={handleToggleDiffMode}
-              className="px-3 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
+              className="px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-md hover:bg-slate-200 dark:hover:bg-slate-600"
               title={`Switch to ${getNextDiffModeText()} View`}
             >
               Diff: {diffMode.charAt(0).toUpperCase() + diffMode.slice(1)}

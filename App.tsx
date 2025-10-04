@@ -5,7 +5,7 @@ import PropertiesPanel from './components/PropertiesPanel';
 import Toolbar from './components/Toolbar';
 import HistoryPanel from './components/HistoryPanel';
 import DocsPanel from './components/DocsPanel';
-import { UndoIcon, RedoIcon } from './components/IconComponents';
+import { SunIcon, MoonIcon } from './components/IconComponents';
 
 type CanvasState = {
     nodes: NodeData[];
@@ -106,7 +106,7 @@ const INITIAL_STATE: CanvasState = {
     { id: 'node2', parentId: 'page2', type: 'state', x: 750, y: 150, width: 250, height: 120, title: 'Dashboard', description: 'User is logged in.', locked: false, variables: [ { id: 'v3', key: 'isLoggedIn', value: 'true'} ] },
   ],
   edges: [
-      { id: 'edge1', sourceId: 'node3', targetId: 'node2', label: 'Successful Login', condition: 'email != "" && password != ""' }
+      { id: 'edge1', sourceId: 'node3', targetId: 'node2', label: 'Successful Login', type: 'interaction', condition: 'email != "" && password != ""' }
   ]
 };
 
@@ -131,11 +131,34 @@ const App: React.FC = () => {
 
   const [diffingVersion, setDiffingVersion] = useState<Version | null>(null);
   const [diffMode, setDiffMode] = useState<'off' | 'simple' | 'detailed'>('simple');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof window !== 'undefined' && localStorage.getItem('theme')) {
+        return localStorage.getItem('theme') as 'light' | 'dark';
+    }
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        return 'dark';
+    }
+    return 'light';
+  });
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
   const didPan = useRef(false);
   const wasDroppingRef = useRef(false);
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [theme]);
+
+  const handleToggleTheme = () => {
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  };
 
   const nodeIsParent = useMemo(() => new Set(nodes.map(n => n.parentId).filter(Boolean)), [nodes]);
 
@@ -313,6 +336,7 @@ const App: React.FC = () => {
                 sourceId: connectionPreview.sourceId,
                 targetId: nodeId,
                 label: 'New Interaction',
+                type: 'interaction',
                 condition: ''
             };
             setState(prev => ({...prev, edges: [...prev.edges, newEdge]}));
@@ -450,7 +474,8 @@ const App: React.FC = () => {
           if (type === 'node') {
               return {...prev, nodes: prev.nodes.map(n => n.id === id ? { ...n, ...data } as NodeData : n)};
           } else {
-              return {...prev, edges: prev.edges.map(e => e.id === id ? { ...e, ...data } : e)};
+              // FIX: Added type assertion to EdgeData to resolve TypeScript error.
+              return {...prev, edges: prev.edges.map(e => e.id === id ? { ...e, ...data } as EdgeData : e)};
           }
       });
       setCurrentVersionId(null);
@@ -639,7 +664,6 @@ const App: React.FC = () => {
               if (n.id === draggingNode.id) {
                   return { ...n, x: draggingNode.initialX, y: draggingNode.initialY };
               }
-              // Fix: Changed `dragging` to `draggingNode` to fix reference error.
               const initialPos = draggingNode.descendantInitialPositions.get(n.id);
               if (initialPos) {
                   return { ...n, x: initialPos.x, y: initialPos.y };
@@ -680,20 +704,25 @@ const App: React.FC = () => {
   const edgesToRender = diffResult ? [...edges, ...diffResult.ghostEdges] : edges;
 
   const getDiffColor = (status: DiffStatus | undefined, isSelected: boolean) => {
-    if (isSelected) return '#3b82f6';
+    const colors = {
+      light: { default: '#64748b', selected: '#3b82f6', added: '#22c55e', modified: '#f59e0b', deleted: '#ef4444' },
+      dark: { default: '#94a3b8', selected: '#60a5fa', added: '#4ade80', modified: '#facc15', deleted: '#f87171' }
+    };
+    const themeColors = colors[theme];
+    if (isSelected) return themeColors.selected;
     if (diffMode === 'detailed') {
-      if (status === 'added') return '#22c55e'; // green
-      if (status === 'modified') return '#f59e0b'; // yellow
-      if (status === 'deleted') return '#ef4444'; // red
+      if (status === 'added') return themeColors.added;
+      if (status === 'modified') return themeColors.modified;
+      if (status === 'deleted') return themeColors.deleted;
     }
      if (diffMode === 'simple' && (status === 'added' || status === 'modified')) {
-       return '#3b82f6'; // blue
+       return themeColors.selected;
      }
-    return '#64748b'; // default slate
+    return themeColors.default;
   }
 
   return (
-    <div className="flex h-screen font-sans">
+    <div className="flex h-screen font-sans dark:text-slate-300">
       <HistoryPanel
         isOpen={isHistoryPanelOpen}
         versions={history}
@@ -708,13 +737,15 @@ const App: React.FC = () => {
       />
       <div 
         ref={canvasRef}
-        className="flex-grow h-full relative overflow-hidden bg-slate-100"
+        className="flex-grow h-full relative overflow-hidden bg-slate-100 dark:bg-slate-900"
         onMouseMove={handleCanvasMouseMove}
         onMouseDown={handleCanvasMouseDown}
         onClick={handleCanvasClick}
         onWheel={handleWheel}
         style={{
-          backgroundImage: 'radial-gradient(#d1d5db 1px, transparent 1px)',
+          backgroundImage: theme === 'light' 
+            ? 'radial-gradient(#d1d5db 1px, transparent 1px)'
+            : 'radial-gradient(#475569 1px, transparent 1px)',
           backgroundSize: '1.5rem 1.5rem',
         }}
       >
@@ -732,6 +763,8 @@ const App: React.FC = () => {
           diffMode={diffMode}
           onDiffModeChange={handleDiffModeChange}
           isHistoryPanelOpen={isHistoryPanelOpen}
+          theme={theme}
+          onToggleTheme={handleToggleTheme}
         />
         <input type="file" ref={importFileRef} onChange={handleImport} accept=".json" style={{ display: 'none' }} />
 
@@ -769,19 +802,19 @@ const App: React.FC = () => {
         
         <svg className="absolute top-0 left-0 w-full h-full pointer-events-none">
             <defs>
-                <marker id="arrowhead" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill="#64748b">
+                <marker id="arrowhead" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill={theme === 'light' ? '#64748b' : '#94a3b8'}>
                     <polygon points="0 0, 7 2.5, 0 5" />
                 </marker>
-                 <marker id="arrowhead-selected" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill="#3b82f6">
+                 <marker id="arrowhead-selected" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill={theme === 'light' ? '#3b82f6' : '#60a5fa'}>
                     <polygon points="0 0, 7 2.5, 0 5" />
                 </marker>
-                 <marker id="arrowhead-added" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill="#22c55e">
+                 <marker id="arrowhead-added" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill={theme === 'light' ? '#22c55e' : '#4ade80'}>
                     <polygon points="0 0, 7 2.5, 0 5" />
                 </marker>
-                 <marker id="arrowhead-modified" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill="#f59e0b">
+                 <marker id="arrowhead-modified" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill={theme === 'light' ? '#f59e0b' : '#facc15'}>
                     <polygon points="0 0, 7 2.5, 0 5" />
                 </marker>
-                 <marker id="arrowhead-deleted" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill="#ef4444">
+                 <marker id="arrowhead-deleted" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill={theme === 'light' ? '#ef4444' : '#f87171'}>
                     <polygon points="0 0, 7 2.5, 0 5" />
                 </marker>
             </defs>
@@ -812,6 +845,7 @@ const App: React.FC = () => {
                                 d={`M ${x1} ${y1} L ${x2} ${y2}`}
                                 stroke={strokeColor}
                                 strokeWidth="2"
+                                strokeDasharray={edge.type === 'action' ? '5,5' : 'none'}
                                 markerEnd={`url(#${markerId})`}
                                 className="pointer-events-none"
                             />
@@ -821,21 +855,15 @@ const App: React.FC = () => {
                                   onClick={(e) => handleEdgeClick(e, edge.id)}
                                 >
                                   <div 
-                                    className="px-2 py-1 rounded-md text-sm font-medium"
+                                    className="px-2 py-1 rounded-md text-sm font-medium bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200"
                                     style={{
-                                      backgroundColor: 'white',
-                                      color: '#334155',
-                                      border: `1px solid ${isSelected ? '#3b82f6' : '#cbd5e1'}`
+                                      border: `1px solid ${isSelected ? (theme === 'light' ? '#3b82f6' : '#60a5fa') : (theme === 'light' ? '#cbd5e1' : '#475569')}`
                                     }}
                                   >
                                     {edge.label}
                                   </div>
                                   {edge.condition && (
-                                     <div className="mt-1 px-1.5 py-0.5 rounded-full text-xs font-mono truncate max-w-full"
-                                      style={{
-                                        backgroundColor: '#eef2ff',
-                                        color: '#4338ca',
-                                      }}
+                                     <div className="mt-1 px-1.5 py-0.5 rounded-full text-xs font-mono truncate max-w-full bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200"
                                       title={edge.condition}
                                      >
                                         {edge.condition}
@@ -849,7 +877,7 @@ const App: React.FC = () => {
                 {connectionPreview && (
                      <path 
                         d={`M ${connectionPreview.x1} ${connectionPreview.y1} L ${connectionPreview.x2} ${connectionPreview.y2}`}
-                        stroke="#3b82f6"
+                        stroke={theme === 'light' ? '#3b82f6' : '#60a5fa'}
                         strokeWidth="2"
                         strokeDasharray="5,5"
                         markerEnd="url(#arrowhead-selected)"
@@ -859,13 +887,13 @@ const App: React.FC = () => {
         </svg>
 
       </div>
-      <PropertiesPanel 
+      {selectedElement && <PropertiesPanel 
         selectedElement={selectedElement} 
         nodes={nodes} 
         edges={edges}
         onUpdateElement={handleUpdateElement}
         onDeleteElement={handleDeleteElement}
-      />
+      />}
     </div>
   );
 };

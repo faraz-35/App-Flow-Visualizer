@@ -24,6 +24,7 @@ export interface EdgeData {
   sourceId: string;
   targetId: string;
   label: string;
+  type: 'interaction' | 'action';
   condition?: string;
 }
 

@@ -28,14 +28,14 @@ const Node: React.FC<NodeProps> = ({
 
   let diffRingClass = '';
   if (diffMode === 'simple' && (diffStatus === 'added' || diffStatus === 'modified')) {
-    diffRingClass = 'ring-4 ring-blue-400 ring-offset-2';
+    diffRingClass = 'ring-4 ring-blue-400 ring-offset-2 ring-offset-slate-100 dark:ring-offset-slate-900';
   } else if (diffMode === 'detailed') {
-    if (diffStatus === 'added') diffRingClass = 'ring-4 ring-green-400 ring-offset-2';
-    if (diffStatus === 'modified') diffRingClass = 'ring-4 ring-yellow-400 ring-offset-2';
+    if (diffStatus === 'added') diffRingClass = 'ring-4 ring-green-400 ring-offset-2 ring-offset-slate-100 dark:ring-offset-slate-900';
+    if (diffStatus === 'modified') diffRingClass = 'ring-4 ring-yellow-400 ring-offset-2 ring-offset-slate-100 dark:ring-offset-slate-900';
   }
   
   if (isGhost) {
-      diffRingClass = 'ring-4 ring-red-400 ring-offset-2';
+      diffRingClass = 'ring-4 ring-red-400 ring-offset-2 ring-offset-slate-100 dark:ring-offset-slate-900';
   }
   
   const ghostClass = isGhost ? 'opacity-40 pointer-events-none' : '';
@@ -43,20 +43,20 @@ const Node: React.FC<NodeProps> = ({
   if (type === 'page') {
       return (
           <div
-              className={`absolute rounded-lg border border-slate-400 shadow-lg ${isSelected ? 'ring-2 ring-blue-500 border-blue-500' : ''} ${diffRingClass} transition-all duration-150 ${cursorClass} bg-slate-50/70 ${ghostClass} flex flex-col`}
+              className={`absolute rounded-lg border border-slate-400 dark:border-slate-600 shadow-lg ${isSelected ? 'ring-2 ring-blue-500 border-blue-500' : ''} ${diffRingClass} transition-all duration-150 ${cursorClass} bg-slate-50/70 dark:bg-slate-800/70 ${ghostClass} flex flex-col`}
               style={{ left: x, top: y, width, height }}
               onMouseDown={(e) => onMouseDown(e, data.id)}
               onClick={(e) => onClick(e, data.id)}
           >
-              <div className="px-4 py-2 bg-slate-200 rounded-t-lg border-b border-slate-400 flex justify-between items-center">
-                  <h3 className="font-bold text-slate-800 text-md truncate">{title}</h3>
+              <div className="px-4 py-2 bg-slate-200 dark:bg-slate-700 rounded-t-lg border-b border-slate-400 dark:border-slate-600 flex justify-between items-center">
+                  <h3 className="font-bold text-slate-800 dark:text-slate-200 text-md truncate">{title}</h3>
                   {!isGhost && (
                     <button 
                         onClick={(e) => {
                             e.stopPropagation();
                             onToggleDocs(data.id);
                         }}
-                        className="p-1 text-slate-500 hover:bg-slate-300 rounded-full"
+                        className="p-1 text-slate-500 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-600 rounded-full"
                         title="View/Edit Documentation"
                     >
                         <DocsIcon /> 
@@ -80,14 +80,14 @@ const Node: React.FC<NodeProps> = ({
   }
 
   // State Node
-  let borderClass = 'border-slate-300';
+  let borderClass = 'border-slate-300 dark:border-slate-600';
   if (isDropTarget) {
     borderClass = 'border-green-500 ring-4 ring-green-500 ring-opacity-50';
   } else if (isSelected) {
     borderClass = 'border-blue-500 ring-2 ring-blue-500';
   }
 
-  const backgroundClass = isParent ? 'bg-slate-50' : 'bg-white';
+  const backgroundClass = isParent ? 'bg-slate-50 dark:bg-slate-800' : 'bg-white dark:bg-slate-700';
   const parentStyle = isParent ? 'border-dashed' : '';
 
 
@@ -100,17 +100,17 @@ const Node: React.FC<NodeProps> = ({
       onClick={(e) => onClick(e, data.id)}
     >
       <div className="p-3">
-        <h3 className="font-bold text-slate-800 text-md truncate">{title}</h3>
-        <p className="text-slate-600 text-sm mt-1">{description}</p>
+        <h3 className="font-bold text-slate-800 dark:text-slate-200 text-md truncate">{title}</h3>
+        <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">{description}</p>
       </div>
        {type === 'state' && variables && variables.length > 0 && (
-         <div className="mt-auto p-3 pt-2 border-t border-slate-200">
-            <div className="space-y-1 text-xs text-slate-700">
+         <div className="mt-auto p-3 pt-2 border-t border-slate-200 dark:border-slate-600">
+            <div className="space-y-1 text-xs text-slate-700 dark:text-slate-300">
               {variables.map(variable => (
                 <div key={variable.id} className="flex justify-between items-center font-mono">
-                  <span className="bg-slate-100 px-1 rounded truncate" title={variable.key}>{variable.key}</span>
-                  <span className="mx-2 text-slate-400">=</span>
-                  <span className="bg-slate-100 px-1 rounded flex-1 truncate text-right" title={variable.value}>{variable.value}</span>
+                  <span className="bg-slate-100 dark:bg-slate-600 px-1 rounded truncate" title={variable.key}>{variable.key}</span>
+                  <span className="mx-2 text-slate-400 dark:text-slate-500">=</span>
+                  <span className="bg-slate-100 dark:bg-slate-600 px-1 rounded flex-1 truncate text-right" title={variable.value}>{variable.value}</span>
                 </div>
               ))}
             </div>
