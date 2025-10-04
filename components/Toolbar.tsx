@@ -14,6 +14,7 @@ interface ToolbarProps {
   isDiffing: boolean;
   diffMode: 'off' | 'simple' | 'detailed';
   onDiffModeChange: (mode: 'off' | 'simple' | 'detailed') => void;
+  isHistoryPanelOpen: boolean;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({ 
@@ -28,10 +29,26 @@ const Toolbar: React.FC<ToolbarProps> = ({
   canRedo,
   isDiffing,
   diffMode,
-  onDiffModeChange
+  onDiffModeChange,
+  isHistoryPanelOpen
 }) => {
+
+  const handleToggleDiffMode = () => {
+    if (diffMode === 'simple') {
+      onDiffModeChange('detailed');
+    } else if (diffMode === 'detailed') {
+      onDiffModeChange('off'); // This will turn off diffing
+    }
+  };
+
+  const getNextDiffModeText = () => {
+    if (diffMode === 'simple') return 'Detailed';
+    if (diffMode === 'detailed') return 'Off';
+    return '';
+  }
+
   return (
-    <div className="absolute top-4 left-4 z-10 bg-white p-2 rounded-lg shadow-md border border-slate-200 flex space-x-1 items-center">
+    <div className={`absolute top-4 left-4 z-30 bg-white p-2 rounded-lg shadow-md border border-slate-200 flex space-x-1 items-center transition-transform duration-300 ease-in-out ${isHistoryPanelOpen ? 'translate-x-[21rem]' : ''}`}>
       <button
         onClick={onToggleHistory}
         className="p-2 text-slate-700 hover:bg-slate-100 rounded-md"
@@ -88,22 +105,16 @@ const Toolbar: React.FC<ToolbarProps> = ({
       >
         <ExportIcon />
       </button>
-      {isDiffing && (
+      {isDiffing && diffMode !== 'off' && (
          <>
           <div className="border-l border-slate-200 h-8 my-auto"></div>
-          <div className="flex items-center space-x-2 px-2">
-            <label htmlFor="diff-mode" className="text-sm font-medium text-slate-600">Diff View:</label>
-            <select
-                id="diff-mode"
-                value={diffMode}
-                onChange={(e) => onDiffModeChange(e.target.value as 'off' | 'simple' | 'detailed')}
-                className="block w-full pl-3 pr-8 py-1.5 text-sm border-slate-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-md"
+            <button
+              onClick={handleToggleDiffMode}
+              className="px-3 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
+              title={`Switch to ${getNextDiffModeText()} View`}
             >
-                <option value="off">Off</option>
-                <option value="simple">Simple</option>
-                <option value="detailed">Detailed</option>
-            </select>
-          </div>
+              Diff: {diffMode.charAt(0).toUpperCase() + diffMode.slice(1)}
+            </button>
          </>
       )}
     </div>

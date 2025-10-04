@@ -46,7 +46,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
     <div className="absolute top-0 left-0 h-full w-80 bg-white p-4 border-r border-slate-200 shadow-lg z-20 flex flex-col transition-transform duration-300 ease-in-out" style={{ transform: isOpen ? 'translateX(0)' : 'translateX(-100%)' }}>
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-bold text-slate-700">Version History</h2>
-        <button onClick={onClose} className="text-slate-500 hover:text-slate-800 text-2xl font-bold">&times;</button>
+        <button onClick={onClose} className="text-slate-500 hover:text-slate-800 text-2xl font-bold" title="Close Panel">&times;</button>
       </div>
 
       <div className="mb-4 border-b pb-4">
@@ -65,6 +65,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
             onClick={handleSave}
             disabled={!versionName.trim()}
             className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+            title="Save current state as a new version"
           >
             Save
           </button>
@@ -76,6 +77,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
             <button
                 onClick={onClearDiff}
                 className="w-full px-4 py-2 bg-slate-200 text-slate-800 text-sm font-medium rounded-md hover:bg-slate-300"
+                title="Exit the diff comparison view"
             >
                 Clear Diff View
             </button>
@@ -100,16 +102,18 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
                         onClick={() => onStartDiff(version.id)}
                         disabled={diffingVersionId === version.id}
                         className="px-3 py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-100 disabled:bg-slate-200 disabled:cursor-not-allowed"
+                        title="Compare this version with the current canvas"
                       >
                         Diff
                       </button>
                      <button
                         onClick={() => onLoadVersion(version.id)}
                         className="px-3 py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-100"
+                        title="Load this version onto the canvas"
                       >
                         Load
                       </button>
-                    <button onClick={() => onDeleteVersion(version.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-100 rounded-full">
+                    <button onClick={() => onDeleteVersion(version.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-100 rounded-full" title="Delete this version">
                       <TrashIcon />
                     </button>
                   </div>

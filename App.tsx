@@ -711,6 +711,7 @@ const App: React.FC = () => {
           isDiffing={!!diffingVersion}
           diffMode={diffMode}
           onDiffModeChange={handleDiffModeChange}
+          isHistoryPanelOpen={isHistoryPanelOpen}
         />
         <input type="file" ref={importFileRef} onChange={handleImport} accept=".json" style={{ display: 'none' }} />
 

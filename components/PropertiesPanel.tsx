@@ -78,7 +78,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedElement, node
                     {(element as NodeData).locked ? <LockClosedIcon /> : <LockOpenIcon />}
                 </button>
             )}
-            <button onClick={handleDelete} className="text-slate-500 hover:text-red-600 p-1 rounded-full hover:bg-red-100">
+            <button onClick={handleDelete} className="text-slate-500 hover:text-red-600 p-1 rounded-full hover:bg-red-100" title="Delete Element">
                 <TrashIcon />
             </button>
         </div>
@@ -112,7 +112,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedElement, node
              <div className="border-t pt-4 mt-4">
                 <div className="flex justify-between items-center mb-2">
                     <h3 className="text-sm font-medium text-slate-600">State Variables</h3>
-                    <button onClick={handleAddVariable} className="text-blue-600 hover:text-blue-800 p-1 rounded-full hover:bg-blue-100">
+                    <button onClick={handleAddVariable} className="text-blue-600 hover:text-blue-800 p-1 rounded-full hover:bg-blue-100" title="Add State Variable">
                         <PlusIcon />
                     </button>
                 </div>
@@ -134,7 +134,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedElement, node
                             placeholder="value"
                             className="flex-1 block w-full px-2 py-1 bg-white border border-slate-300 rounded-md text-sm shadow-sm placeholder-slate-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-slate-900 font-mono"
                         />
-                        <button onClick={() => handleRemoveVariable(variable.id)} className="text-slate-400 hover:text-red-600 p-1 rounded-full hover:bg-red-100">
+                        <button onClick={() => handleRemoveVariable(variable.id)} className="text-slate-400 hover:text-red-600 p-1 rounded-full hover:bg-red-100" title="Remove Variable">
                             <TrashIcon />
                         </button>
                       </div>
