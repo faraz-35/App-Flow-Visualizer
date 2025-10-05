@@ -1,5 +1,6 @@
+
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import type { NodeData, EdgeData, SelectedElement, ConnectionPreview, Version, DiffStatus } from './types';
+import type { NodeData, EdgeData, SelectedElement, ConnectionPreview, Version, DiffStatus, NodeType, EdgeType } from './types';
 import Node from './components/Node';
 import PropertiesPanel from './components/PropertiesPanel';
 import Toolbar from './components/Toolbar';
@@ -100,13 +101,18 @@ const getDescendants = (nodeId: string, allNodes: NodeData[]): string[] => {
 
 const INITIAL_STATE: CanvasState = {
   nodes: [
-    { id: 'page1', type: 'page', x: 50, y: 50, width: 600, height: 400, title: 'Onboarding', description: '', locked: false, docs: 'This page handles the entire user onboarding flow, including login and registration.' },
-    { id: 'page2', type: 'page', x: 700, y: 50, width: 600, height: 400, title: 'Main Application', description: '', locked: false, docs: '' },
-    { id: 'node3', parentId: 'page1', type: 'state', x: 100, y: 150, width: 250, height: 140, title: 'Login Modal', description: 'Pops up on the start page.', locked: false, variables: [ { id: 'v1', key: 'email', value: '""'}, { id: 'v2', key: 'password', value: '""'} ] },
-    { id: 'node2', parentId: 'page2', type: 'state', x: 750, y: 150, width: 250, height: 120, title: 'Dashboard', description: 'User is logged in.', locked: false, variables: [ { id: 'v3', key: 'isLoggedIn', value: 'true'} ] },
+    { id: 'page1', type: 'page', x: 50, y: 50, width: 400, height: 450, title: 'Onboarding', description: '', locked: false, docs: 'This page handles the entire user onboarding flow.' },
+    { id: 'page2', type: 'page', x: 950, y: 50, width: 400, height: 450, title: 'Dashboard', description: '', locked: false, docs: '' },
+    { id: 'ui1', parentId: 'page1', type: 'ui', x: 100, y: 150, width: 220, height: 100, title: 'Login Form', description: 'User enters credentials.', locked: false },
+    { id: 'action1', parentId: 'page1', type: 'action', x: 100, y: 280, width: 220, height: 80, title: 'Click Submit', description: 'User submits the form.', locked: false },
+    { id: 'logic1', type: 'logic', x: 550, y: 150, width: 150, height: 150, title: 'Validate Credentials', description: 'Check if user exists.', locked: false },
+    { id: 'entity1', type: 'entity', x: 535, y: 350, width: 180, height: 100, title: 'User Session', description: 'Data for logged in user.', locked: false, variables: [ { id: 'v3', key: 'isLoggedIn', value: 'true'} ] },
+    { id: 'ui2', parentId: 'page2', type: 'ui', x: 1000, y: 150, width: 300, height: 120, title: 'Welcome Banner', description: 'Shows personalized greeting.', locked: false }
   ],
   edges: [
-      { id: 'edge1', sourceId: 'node3', targetId: 'node2', label: 'Successful Login', type: 'interaction', condition: 'email != "" && password != ""' }
+      { id: 'edge1', sourceId: 'action1', targetId: 'logic1', label: 'On Submit', type: 'logic' },
+      { id: 'edge2', sourceId: 'logic1', targetId: 'entity1', label: 'Create Session', type: 'data' },
+      { id: 'edge3', sourceId: 'logic1', targetId: 'page2', label: 'Success', type: 'navigation' }
   ]
 };
 
@@ -205,6 +211,8 @@ const App: React.FC = () => {
         if (!nodeId) return 0;
         const node = nodeMap.get(nodeId);
         if (!node) return 0;
+        // Pages are at the base level (0), children are deeper.
+        if (node.type === 'page') return 0;
         return 1 + getDepth(node.parentId);
     };
     return [...nodes].sort((a, b) => getDepth(a.id) - getDepth(b.id));
@@ -263,33 +271,40 @@ const App: React.FC = () => {
     };
   }, [transform]);
 
-  const addNode = (type: 'page' | 'state') => {
+  const addNode = (type: NodeType) => {
     const newNodeId = `node_${crypto.randomUUID()}`;
     const canvasRect = canvasRef.current?.getBoundingClientRect() || { width: window.innerWidth, height: window.innerHeight };
     const centerX = (canvasRect.width / 2 - transform.x) / transform.scale;
     const centerY = (canvasRect.height / 2 - transform.y) / transform.scale;
 
-    const isPage = type === 'page';
+    const defaults: Omit<NodeData, 'id' | 'x' | 'y'> = {
+        type,
+        width: 220, height: 100,
+        title: `New ${type.charAt(0).toUpperCase() + type.slice(1)}`,
+        description: `A new ${type} node.`,
+        locked: false,
+        variables: type === 'entity' ? [] : undefined,
+        docs: type === 'page' ? '' : undefined,
+    };
+    
+    if (type === 'page') {
+        defaults.width = 500;
+        defaults.height = 400;
+    } else if (type === 'logic') {
+        defaults.width = 150;
+        defaults.height = 150;
+    }
+
     const newNode: NodeData = {
+      ...defaults,
       id: newNodeId,
-      type,
-      x: centerX - (isPage ? 300 : 125),
-      y: centerY - (isPage ? 200 : 60),
-      width: isPage ? 600 : 250,
-      height: isPage ? 400 : 120,
-      title: isPage ? 'New Page' : 'New State',
-      description: isPage ? '' : 'Describe this application state.',
-      locked: false,
-      ...(isPage && { docs: '' }),
-      ...(type === 'state' && { variables: [] })
+      x: centerX - defaults.width / 2,
+      y: centerY - defaults.height / 2,
     };
     setState(prev => ({...prev, nodes: [...prev.nodes, newNode]}));
     setCurrentVersionId(null);
     setSelectedElement({ type: 'node', id: newNodeId });
   }
-
-  const handleAddStateNode = () => addNode('state');
-  const handleAddPageNode = () => addNode('page');
 
   const handleDrop = useCallback((e: React.MouseEvent | MouseEvent) => {
     if (!draggingNode) return;
@@ -351,7 +366,7 @@ const App: React.FC = () => {
   const handleResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>, nodeId: string) => {
     e.stopPropagation();
     const node = nodes.find(n => n.id === nodeId);
-    if (!node || node.locked) return;
+    if (!node || node.locked || node.type !== 'page') return;
 
     setResizingNode({
         id: nodeId,
@@ -367,13 +382,13 @@ const App: React.FC = () => {
     e.stopPropagation();
     if (connectionPreview && connectionPreview.sourceId !== nodeId) {
         const targetNode = nodes.find(n => n.id === nodeId);
-        if (targetNode?.type !== 'page') {
+        if (targetNode) {
              const newEdge: EdgeData = {
                 id: `edge_${crypto.randomUUID()}`,
                 sourceId: connectionPreview.sourceId,
                 targetId: nodeId,
-                label: 'New Interaction',
-                type: 'interaction',
+                label: 'New Flow',
+                type: 'logic',
                 condition: ''
             };
             setState(prev => ({...prev, edges: [...prev.edges, newEdge]}));
@@ -455,6 +470,7 @@ const App: React.FC = () => {
       
       const descendantsOfDragged = getDescendants(draggingNode.id, nodes);
       const potentialDropTarget = nodes.find(node => 
+        node.type === 'page' && // Only pages can be drop targets for now
         !node.locked &&
         node.id !== draggingNode.id &&
         !descendantsOfDragged.includes(node.id) &&
@@ -511,7 +527,6 @@ const App: React.FC = () => {
           if (type === 'node') {
               return {...prev, nodes: prev.nodes.map(n => n.id === id ? { ...n, ...data } as NodeData : n)};
           } else {
-              // FIX: Added type assertion to EdgeData to resolve TypeScript error.
               return {...prev, edges: prev.edges.map(e => e.id === id ? { ...e, ...data } as EdgeData : e)};
           }
       });
@@ -672,86 +687,65 @@ const App: React.FC = () => {
 
     const isDark = theme === 'dark';
     
-    const styles = {
-        bg: isDark ? '#1e293b' : '#f1f5f9',
-        page: {
-            bg: isDark ? 'rgba(30, 41, 59, 0.7)' : 'rgba(248, 250, 252, 0.7)',
-            border: isDark ? '#475569' : '#cbd5e1',
-            headerBg: isDark ? '#334155' : '#e2e8f0',
-            title: isDark ? '#e2e8f0' : '#1e293b',
-        },
-        state: {
-            bg: isDark ? '#334155' : '#ffffff',
-            border: isDark ? '#475569' : '#cbd5e1',
-            title: isDark ? '#e2e8f0' : '#1e293b',
-            description: isDark ? '#94a3b8' : '#64748b',
-            varKeyBg: isDark ? '#475569' : '#f1f5f9',
-            varValueBg: isDark ? '#475569' : '#f1f5f9',
-            varText: isDark ? '#cbd5e1' : '#334155',
-        },
-        edge: {
-            line: isDark ? '#94a3b8' : '#64748b',
-            labelBg: isDark ? '#334155' : '#ffffff',
-            labelBorder: isDark ? '#475569' : '#cbd5e1',
-            labelText: isDark ? '#e2e8f0' : '#334155',
-            conditionBg: isDark ? '#312e81' : '#e0e7ff',
-            conditionText: isDark ? '#c7d2fe' : '#3730a3',
-        },
+    // FIX: Add headerBg to all node color definitions to fix type error.
+    const nodeColors = {
+        page: { bg: isDark ? 'rgba(30, 41, 59, 0.7)' : 'rgba(248, 250, 252, 0.7)', border: isDark ? '#475569' : '#cbd5e1', headerBg: isDark ? '#334155' : '#e2e8f0', title: isDark ? '#e2e8f0' : '#1e293b' },
+        action: { bg: isDark ? '#422006' : '#fffbeb', border: isDark ? '#9a3412' : '#fcd34d', title: isDark ? '#fef3c7' : '#78350f', headerBg: '' },
+        logic: { bg: isDark ? '#164e63' : '#ecfeff', border: isDark ? '#0891b2' : '#67e8f9', title: isDark ? '#e0f2fe' : '#155e75', headerBg: '' },
+        entity: { bg: isDark ? '#166534' : '#f0fdf4', border: isDark ? '#22c55e' : '#86efac', title: isDark ? '#dcfce7' : '#15803d', headerBg: '' },
+        ui: { bg: isDark ? '#5b21b6' : '#faf5ff', border: isDark ? '#a78bfa' : '#c4b5fd', title: isDark ? '#f5f3ff' : '#6b21a8', headerBg: '' },
+        external: { bg: isDark ? '#7c2d12' : '#fff7ed', border: isDark ? '#fb923c' : '#fdba74', title: isDark ? '#ffedd5' : '#9a3412', headerBg: '' },
+        note: { bg: isDark ? '#374151' : '#f3f4f6', border: isDark ? '#6b7280' : '#d1d5db', title: isDark ? '#f3f4f6' : '#374151', headerBg: '' },
     };
 
-    const nodesSvg = nodes.map(node => {
-        const commonRectProps = `rx="8" stroke="${node.type === 'page' ? styles.page.border : styles.state.border}" stroke-width="1"`;
+    const edgeColors = {
+        line: isDark ? '#94a3b8' : '#64748b',
+        labelBg: isDark ? '#334155' : '#ffffff',
+        labelBorder: isDark ? '#475569' : '#cbd5e1',
+        labelText: isDark ? '#e2e8f0' : '#334155',
+    };
+    
+    const getDashArray = (type: EdgeType) => ({
+      navigation: 'none',
+      logic: '5,5',
+      data: '2,3',
+      system: '10,5'
+    }[type]);
+
+    const nodesSvg = sortedNodes.map(node => {
+        const colors = nodeColors[node.type];
         
         if (node.type === 'page') {
             return `
                 <g transform="translate(${node.x}, ${node.y})">
-                    <rect width="${node.width}" height="${node.height}" fill="${styles.page.bg}" ${commonRectProps} />
-                    <rect width="${node.width}" height="40" fill="${styles.page.headerBg}" rx="8" ry="8" />
-                    <rect width="${node.width}" height="20" y="20" fill="${styles.page.headerBg}" />
-                    <text x="16" y="25" font-family="sans-serif" font-size="16" font-weight="bold" fill="${styles.page.title}" text-anchor="start">${escapeXml(node.title)}</text>
+                    <rect width="${node.width}" height="${node.height}" fill="${colors.bg}" rx="8" stroke="${colors.border}" stroke-width="1" />
+                    <rect width="${node.width}" height="40" fill="${colors.headerBg}" rx="8" ry="8" />
+                    <rect width="${node.width}" height="20" y="20" fill="${colors.headerBg}" />
+                    <text x="16" y="25" font-family="sans-serif" font-size="16" font-weight="bold" fill="${colors.title}" text-anchor="start">${escapeXml(node.title)}</text>
                 </g>
             `;
         }
 
-        // State node
-        const titleY = 24;
-        const descY = 44;
-        const lineHeight = 18;
-        const descLines = wrapText(node.description, node.width - 32, 7.5);
-        
-        let variablesSvg = '';
-        if (node.variables && node.variables.length > 0) {
-            const startY = descY + descLines.length * lineHeight;
-            variablesSvg += `<line x1="12" y1="${startY}" x2="${node.width - 12}" y2="${startY}" stroke="${isDark ? '#475569' : '#e2e8f0'}" stroke-width="1" />`;
-            
-            let currentY = startY + 20;
-            
-            node.variables.forEach(v => {
-                const keyWidth = v.key.length * 7 + 8;
-                const valueWidth = v.value.length * 7 + 8;
-                const keyX = 16;
-                const equalX = keyX + keyWidth + 6;
-                const valueX = equalX + 14;
-                
-                variablesSvg += `
-                    <g transform="translate(0, ${currentY})">
-                        <rect x="${keyX}" y="-12" height="16" width="${keyWidth}" rx="4" fill="${styles.state.varKeyBg}" />
-                        <text x="${keyX + 4}" font-family="monospace" font-size="12" fill="${styles.state.varText}">${escapeXml(v.key)}</text>
-                        <text x="${equalX}" font-family="monospace" font-size="12" fill="${styles.state.description}">=</text>
-                        <rect x="${valueX}" y="-12" height="16" width="${valueWidth}" rx="4" fill="${styles.state.varValueBg}" />
-                        <text x="${valueX + 4}" font-family="monospace" font-size="12" fill="${styles.state.varText}">${escapeXml(v.value)}</text>
-                    </g>
-                `;
-                currentY += 20;
-            });
+        const commonProps = `stroke="${colors.border}" stroke-width="1" fill="${colors.bg}"`;
+        const textContent = `
+            <text x="${node.width/2}" y="${node.height/2 - 5}" font-family="sans-serif" font-size="14" font-weight="bold" fill="${colors.title}" text-anchor="middle">${escapeXml(node.title)}</text>
+            <text x="${node.width/2}" y="${node.height/2 + 15}" font-family="sans-serif" font-size="12" fill="${colors.title}" opacity="0.8" text-anchor="middle">${escapeXml(node.description)}</text>
+        `;
+
+        if (node.type === 'logic') {
+            const points = `${node.width/2},0 ${node.width},${node.height/2} ${node.width/2},${node.height} 0,${node.height/2}`;
+            return `
+                <g transform="translate(${node.x}, ${node.y})">
+                    <polygon points="${points}" ${commonProps} />
+                    ${textContent}
+                </g>
+            `;
         }
 
         return `
             <g transform="translate(${node.x}, ${node.y})">
-                <rect width="${node.width}" height="${node.height}" fill="${styles.state.bg}" ${commonRectProps} />
-                <text x="16" y="${titleY}" font-family="sans-serif" font-size="16" font-weight="bold" fill="${styles.state.title}">${escapeXml(node.title)}</text>
-                ${descLines.map((line, i) => `<text x="16" y="${descY + i * lineHeight}" font-family="sans-serif" font-size="14" fill="${styles.state.description}">${escapeXml(line)}</text>`).join('')}
-                ${variablesSvg}
+                <rect width="${node.width}" height="${node.height}" rx="8" ${commonProps} />
+                ${textContent}
             </g>
         `;
     }).join('');
@@ -769,18 +763,17 @@ const App: React.FC = () => {
         const midY = (y1 + y2) / 2;
         
         const labelHtml = `
-            <div xmlns="http://www.w3.org/1999/xhtml" style="font-family: sans-serif; font-size: 14px; text-align: center;">
-              <div style="background-color: ${styles.edge.labelBg}; color: ${styles.edge.labelText}; border: 1px solid ${styles.edge.labelBorder}; padding: 2px 8px; border-radius: 6px; display: inline-block;">
+            <div xmlns="http://www.w3.org/1999/xhtml" style="font-family: sans-serif; font-size: 14px; text-align: center; color: ${edgeColors.labelText};">
+              <div style="background-color: ${edgeColors.labelBg}; border: 1px solid ${edgeColors.labelBorder}; padding: 2px 8px; border-radius: 6px; display: inline-block;">
                 ${escapeXml(edge.label)}
               </div>
-              ${edge.condition ? `<div style="margin-top: 4px; background-color: ${styles.edge.conditionBg}; color: ${styles.edge.conditionText}; font-family: monospace; font-size: 12px; padding: 1px 6px; border-radius: 9999px; display: inline-block; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeXml(edge.condition)}</div>` : ''}
             </div>
         `;
         
         return `
             <g>
-                <path d="M ${x1} ${y1} L ${x2} ${y2}" stroke="${styles.edge.line}" stroke-width="2" stroke-dasharray="${edge.type === 'action' ? '5,5' : 'none'}" marker-end="url(#arrowhead)" />
-                <foreignObject x="${midX - 75}" y="${midY - 30}" width="150" height="60">
+                <path d="M ${x1} ${y1} L ${x2} ${y2}" stroke="${edgeColors.line}" stroke-width="2" stroke-dasharray="${getDashArray(edge.type)}" marker-end="url(#arrowhead)" />
+                <foreignObject x="${midX - 75}" y="${midY - 20}" width="150" height="40">
                     ${labelHtml}
                 </foreignObject>
             </g>
@@ -790,11 +783,11 @@ const App: React.FC = () => {
     const svgString = `
         <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
             <defs>
-                <marker id="arrowhead" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill="${styles.edge.line}">
+                <marker id="arrowhead" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill="${edgeColors.line}">
                     <polygon points="0 0, 7 2.5, 0 5" />
                 </marker>
             </defs>
-            <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" fill="${styles.bg}" />
+            <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" fill="${isDark ? '#1e293b' : '#f1f5f9'}" />
             <g transform="translate(${-minX + padding}, ${-minY + padding})">
                 ${edgesSvg}
                 ${nodesSvg}
@@ -811,7 +804,7 @@ const App: React.FC = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [nodes, edges, theme]);
+  }, [nodes, edges, theme, sortedNodes]);
 
 
   const handleImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -921,6 +914,13 @@ const App: React.FC = () => {
      }
     return themeColors.default;
   }
+  
+  const edgeTypeStyles: Record<EdgeType, string> = {
+    navigation: 'none',
+    logic: '5,5',
+    data: '2,3',
+    system: '10,5'
+  };
 
   return (
     <div className="flex h-screen font-sans dark:text-slate-300">
@@ -951,8 +951,7 @@ const App: React.FC = () => {
         }}
       >
         <Toolbar 
-          onAddStateNode={handleAddStateNode} 
-          onAddPageNode={handleAddPageNode} 
+          onAddNode={addNode}
           onExport={handleExport} 
           onImport={triggerImport} 
           onExportAsImage={handleExportAsImage}
@@ -1047,7 +1046,7 @@ const App: React.FC = () => {
                                 d={`M ${x1} ${y1} L ${x2} ${y2}`}
                                 stroke={strokeColor}
                                 strokeWidth="2"
-                                strokeDasharray={edge.type === 'action' ? '5,5' : 'none'}
+                                strokeDasharray={edgeTypeStyles[edge.type]}
                                 markerEnd={`url(#${markerId})`}
                                 className="pointer-events-none"
                             />

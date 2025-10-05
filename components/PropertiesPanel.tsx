@@ -52,7 +52,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedElement, node
   const handleAddVariable = () => {
     if (type !== 'node') return;
     const node = element as NodeData;
-    const newVariable = { id: crypto.randomUUID(), key: 'newVar', value: '""' };
+    const newVariable = { id: crypto.randomUUID(), key: 'newAttribute', value: '""' };
     const newVariables = [...(node.variables || []), newVariable];
     onUpdateElement(id, 'node', { variables: newVariables });
   };
@@ -104,11 +104,11 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedElement, node
               className="mt-1 block w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-sm shadow-sm placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-slate-900 dark:text-slate-200"
             />
           </div>
-          {(element as NodeData).type === 'state' && (
+          {(element as NodeData).type === 'entity' && (
              <div className="border-t border-slate-200 dark:border-slate-700 pt-4 mt-4">
                 <div className="flex justify-between items-center mb-2">
-                    <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300">State Variables</h3>
-                    <button onClick={handleAddVariable} className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 p-1 rounded-full hover:bg-blue-100 dark:hover:bg-slate-700" title="Add State Variable">
+                    <h3 className="text-sm font-medium text-slate-600 dark:text-slate-300">Attributes</h3>
+                    <button onClick={handleAddVariable} className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 p-1 rounded-full hover:bg-blue-100 dark:hover:bg-slate-700" title="Add Attribute">
                         <PlusIcon />
                     </button>
                 </div>
@@ -130,12 +130,12 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedElement, node
                             placeholder="value"
                             className="flex-1 block w-full px-2 py-1 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-sm shadow-sm placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-slate-900 dark:text-slate-200 font-mono"
                         />
-                        <button onClick={() => handleRemoveVariable(variable.id)} className="text-slate-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 p-1 rounded-full hover:bg-red-100 dark:hover:bg-slate-700" title="Remove Variable">
+                        <button onClick={() => handleRemoveVariable(variable.id)} className="text-slate-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 p-1 rounded-full hover:bg-red-100 dark:hover:bg-slate-700" title="Remove Attribute">
                             <TrashIcon />
                         </button>
                       </div>
                    ))}
-                   {(element as NodeData).variables?.length === 0 && <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-2">No variables defined.</p>}
+                   {(element as NodeData).variables?.length === 0 && <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-2">No attributes defined.</p>}
                 </div>
              </div>
           )}
@@ -145,7 +145,7 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedElement, node
       {type === 'edge' && (
         <div className="space-y-4">
            <div>
-            <label htmlFor="type" className="block text-sm font-medium text-slate-600 dark:text-slate-300">Action Type</label>
+            <label htmlFor="type" className="block text-sm font-medium text-slate-600 dark:text-slate-300">Flow Type</label>
             <select
               name="type"
               id="type"
@@ -153,8 +153,10 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedElement, node
               onChange={handleEdgeChange}
               className="mt-1 block w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-sm shadow-sm placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-slate-900 dark:text-slate-200"
             >
-              <option value="interaction">UI Interaction</option>
-              <option value="action">Business Logic Action</option>
+              <option value="navigation">Navigation</option>
+              <option value="logic">Logic Flow</option>
+              <option value="data">Data Flow</option>
+              <option value="system">System Flow</option>
             </select>
           </div>
           <div>

@@ -4,6 +4,10 @@ export interface StateVariable {
   value: string;
 }
 
+export type NodeType = 'page' | 'action' | 'logic' | 'entity' | 'ui' | 'external' | 'note';
+export type EdgeType = 'navigation' | 'logic' | 'data' | 'system';
+
+
 export interface NodeData {
   id: string;
   x: number;
@@ -13,9 +17,9 @@ export interface NodeData {
   title: string;
   description: string;
   parentId?: string | null;
-  type: 'page' | 'state';
+  type: NodeType;
   locked?: boolean;
-  variables?: StateVariable[];
+  variables?: StateVariable[]; // Repurposed as 'attributes' for entity nodes
   docs?: string;
 }
 
@@ -24,7 +28,7 @@ export interface EdgeData {
   sourceId: string;
   targetId: string;
   label: string;
-  type: 'interaction' | 'action';
+  type: EdgeType;
   condition?: string;
 }
 

@@ -1,9 +1,9 @@
-import React from 'react';
-import { PlusIcon, ExportIcon, ImportIcon, PageIcon, HistoryIcon, UndoIcon, RedoIcon, SunIcon, MoonIcon, ImageIcon } from './IconComponents';
+import React, { useState, useRef, useEffect } from 'react';
+import type { NodeType } from '../types';
+import { PlusIcon, ExportIcon, ImportIcon, PageIcon, HistoryIcon, UndoIcon, RedoIcon, SunIcon, MoonIcon, ImageIcon, ActionIcon, LogicIcon, EntityIcon, UiIcon, ExternalIcon, NoteIcon } from './IconComponents';
 
 interface ToolbarProps {
-  onAddStateNode: () => void;
-  onAddPageNode: () => void;
+  onAddNode: (type: NodeType) => void;
   onExport: () => void;
   onImport: () => void;
   onExportAsImage: () => void;
@@ -20,9 +20,18 @@ interface ToolbarProps {
   onToggleTheme: () => void;
 }
 
+const nodeTypes: { type: NodeType; label: string; icon: React.ReactNode }[] = [
+    { type: 'page', label: 'Page', icon: <PageIcon /> },
+    { type: 'ui', label: 'UI Item', icon: <UiIcon /> },
+    { type: 'action', label: 'Action', icon: <ActionIcon /> },
+    { type: 'logic', label: 'Logic', icon: <LogicIcon /> },
+    { type: 'entity', label: 'Entity', icon: <EntityIcon /> },
+    { type: 'external', label: 'External', icon: <ExternalIcon /> },
+    { type: 'note', label: 'Note', icon: <NoteIcon /> },
+];
+
 const Toolbar: React.FC<ToolbarProps> = ({ 
-  onAddStateNode, 
-  onAddPageNode, 
+  onAddNode, 
   onExport, 
   onImport,
   onExportAsImage,
@@ -38,15 +47,27 @@ const Toolbar: React.FC<ToolbarProps> = ({
   theme,
   onToggleTheme
 }) => {
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(event.target as Node)) {
+        setIsAddMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleToggleDiffMode = () => {
     if (diffMode === 'simple') {
       onDiffModeChange('detailed');
     } else if (diffMode === 'detailed') {
-      onDiffModeChange('off'); // This will turn off diffing
+      onDiffModeChange('off');
     }
   };
-
+  
   const getNextDiffModeText = () => {
     if (diffMode === 'simple') return 'Detailed';
     if (diffMode === 'detailed') return 'Off';
@@ -80,22 +101,35 @@ const Toolbar: React.FC<ToolbarProps> = ({
         <RedoIcon />
       </button>
       <div className="border-l border-slate-200 dark:border-slate-700 h-8 my-auto"></div>
-      <button
-        onClick={onAddPageNode}
-        className="flex items-center space-x-2 px-3 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"
-        title="Add new page container"
-      >
-        <PageIcon />
-        <span className="text-sm font-medium">Add Page</span>
-      </button>
-      <button
-        onClick={onAddStateNode}
-        className="flex items-center space-x-2 px-3 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"
-        title="Add new state"
-      >
-        <PlusIcon />
-        <span className="text-sm font-medium">Add State</span>
-      </button>
+      
+      <div className="relative" ref={addMenuRef}>
+        <button
+          onClick={() => setIsAddMenuOpen(prev => !prev)}
+          className="flex items-center space-x-2 px-3 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"
+          title="Add new node"
+        >
+          <PlusIcon />
+          <span className="text-sm font-medium">Add Node</span>
+        </button>
+        {isAddMenuOpen && (
+            <div className="absolute top-full mt-2 w-48 bg-white dark:bg-slate-800 rounded-md shadow-lg border border-slate-200 dark:border-slate-700 py-1">
+                {nodeTypes.map(({ type, label, icon }) => (
+                    <button
+                        key={type}
+                        onClick={() => {
+                            onAddNode(type);
+                            setIsAddMenuOpen(false);
+                        }}
+                        className="w-full flex items-center space-x-3 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+                    >
+                        <span className="w-6 h-6">{icon}</span>
+                        <span>{label}</span>
+                    </button>
+                ))}
+            </div>
+        )}
+      </div>
+
       <div className="border-l border-slate-200 dark:border-slate-700 h-8 my-auto"></div>
       <button
         onClick={onImport}
