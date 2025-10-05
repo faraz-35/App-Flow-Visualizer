@@ -5,7 +5,7 @@ import PropertiesPanel from './components/PropertiesPanel';
 import Toolbar from './components/Toolbar';
 import HistoryPanel from './components/HistoryPanel';
 import DocsPanel from './components/DocsPanel';
-import { SunIcon, MoonIcon } from './components/IconComponents';
+import { SunIcon, MoonIcon, ImageIcon } from './components/IconComponents';
 
 type CanvasState = {
     nodes: NodeData[];
@@ -109,6 +109,43 @@ const INITIAL_STATE: CanvasState = {
       { id: 'edge1', sourceId: 'node3', targetId: 'node2', label: 'Successful Login', type: 'interaction', condition: 'email != "" && password != ""' }
   ]
 };
+
+// Helper function to wrap text for SVG. A bit naive but should work for simple cases.
+function wrapText(text: string, maxWidth: number, charWidth: number): string[] {
+    const lines: string[] = [];
+    if (!text) return lines;
+    
+    const maxCharsPerLine = Math.floor(maxWidth / charWidth);
+    if (maxCharsPerLine <= 0) return [text];
+
+    const words = text.split(' ');
+    let currentLine = '';
+
+    words.forEach(word => {
+        if (currentLine.length > 0 && (currentLine + ' ' + word).length > maxCharsPerLine) {
+            lines.push(currentLine);
+            currentLine = word;
+        } else {
+            currentLine = currentLine ? currentLine + ' ' + word : word;
+        }
+    });
+    lines.push(currentLine);
+    return lines;
+}
+
+// Helper function to escape special XML characters
+function escapeXml(unsafe: string): string {
+    return unsafe.replace(/[<>&'"]/g, function (c) {
+        switch (c) {
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '&': return '&amp;';
+            case '\'': return '&apos;';
+            case '"': return '&quot;';
+            default: return c;
+        }
+    });
+}
 
 const App: React.FC = () => {
   const { state, setState, resetState, undo, redo, canUndo, canRedo } = useHistoryState(INITIAL_STATE);
@@ -613,6 +650,170 @@ const App: React.FC = () => {
     URL.revokeObjectURL(url);
   }, [state, history]);
 
+  const handleExportAsImage = useCallback(() => {
+    if (nodes.length === 0) {
+        alert("Nothing to export.");
+        return;
+    }
+
+    const padding = 50;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    nodes.forEach(node => {
+        minX = Math.min(minX, node.x);
+        minY = Math.min(minY, node.y);
+        maxX = Math.max(maxX, node.x + node.width);
+        maxY = Math.max(maxY, node.y + node.height);
+    });
+
+    const contentWidth = maxX - minX;
+    const contentHeight = maxY - minY;
+    const svgWidth = contentWidth + padding * 2;
+    const svgHeight = contentHeight + padding * 2;
+
+    const isDark = theme === 'dark';
+    
+    const styles = {
+        bg: isDark ? '#1e293b' : '#f1f5f9',
+        page: {
+            bg: isDark ? 'rgba(30, 41, 59, 0.7)' : 'rgba(248, 250, 252, 0.7)',
+            border: isDark ? '#475569' : '#cbd5e1',
+            headerBg: isDark ? '#334155' : '#e2e8f0',
+            title: isDark ? '#e2e8f0' : '#1e293b',
+        },
+        state: {
+            bg: isDark ? '#334155' : '#ffffff',
+            border: isDark ? '#475569' : '#cbd5e1',
+            title: isDark ? '#e2e8f0' : '#1e293b',
+            description: isDark ? '#94a3b8' : '#64748b',
+            varKeyBg: isDark ? '#475569' : '#f1f5f9',
+            varValueBg: isDark ? '#475569' : '#f1f5f9',
+            varText: isDark ? '#cbd5e1' : '#334155',
+        },
+        edge: {
+            line: isDark ? '#94a3b8' : '#64748b',
+            labelBg: isDark ? '#334155' : '#ffffff',
+            labelBorder: isDark ? '#475569' : '#cbd5e1',
+            labelText: isDark ? '#e2e8f0' : '#334155',
+            conditionBg: isDark ? '#312e81' : '#e0e7ff',
+            conditionText: isDark ? '#c7d2fe' : '#3730a3',
+        },
+    };
+
+    const nodesSvg = nodes.map(node => {
+        const commonRectProps = `rx="8" stroke="${node.type === 'page' ? styles.page.border : styles.state.border}" stroke-width="1"`;
+        
+        if (node.type === 'page') {
+            return `
+                <g transform="translate(${node.x}, ${node.y})">
+                    <rect width="${node.width}" height="${node.height}" fill="${styles.page.bg}" ${commonRectProps} />
+                    <rect width="${node.width}" height="40" fill="${styles.page.headerBg}" rx="8" ry="8" />
+                    <rect width="${node.width}" height="20" y="20" fill="${styles.page.headerBg}" />
+                    <text x="16" y="25" font-family="sans-serif" font-size="16" font-weight="bold" fill="${styles.page.title}" text-anchor="start">${escapeXml(node.title)}</text>
+                </g>
+            `;
+        }
+
+        // State node
+        const titleY = 24;
+        const descY = 44;
+        const lineHeight = 18;
+        const descLines = wrapText(node.description, node.width - 32, 7.5);
+        
+        let variablesSvg = '';
+        if (node.variables && node.variables.length > 0) {
+            const startY = descY + descLines.length * lineHeight;
+            variablesSvg += `<line x1="12" y1="${startY}" x2="${node.width - 12}" y2="${startY}" stroke="${isDark ? '#475569' : '#e2e8f0'}" stroke-width="1" />`;
+            
+            let currentY = startY + 20;
+            
+            node.variables.forEach(v => {
+                const keyWidth = v.key.length * 7 + 8;
+                const valueWidth = v.value.length * 7 + 8;
+                const keyX = 16;
+                const equalX = keyX + keyWidth + 6;
+                const valueX = equalX + 14;
+                
+                variablesSvg += `
+                    <g transform="translate(0, ${currentY})">
+                        <rect x="${keyX}" y="-12" height="16" width="${keyWidth}" rx="4" fill="${styles.state.varKeyBg}" />
+                        <text x="${keyX + 4}" font-family="monospace" font-size="12" fill="${styles.state.varText}">${escapeXml(v.key)}</text>
+                        <text x="${equalX}" font-family="monospace" font-size="12" fill="${styles.state.description}">=</text>
+                        <rect x="${valueX}" y="-12" height="16" width="${valueWidth}" rx="4" fill="${styles.state.varValueBg}" />
+                        <text x="${valueX + 4}" font-family="monospace" font-size="12" fill="${styles.state.varText}">${escapeXml(v.value)}</text>
+                    </g>
+                `;
+                currentY += 20;
+            });
+        }
+
+        return `
+            <g transform="translate(${node.x}, ${node.y})">
+                <rect width="${node.width}" height="${node.height}" fill="${styles.state.bg}" ${commonRectProps} />
+                <text x="16" y="${titleY}" font-family="sans-serif" font-size="16" font-weight="bold" fill="${styles.state.title}">${escapeXml(node.title)}</text>
+                ${descLines.map((line, i) => `<text x="16" y="${descY + i * lineHeight}" font-family="sans-serif" font-size="14" fill="${styles.state.description}">${escapeXml(line)}</text>`).join('')}
+                ${variablesSvg}
+            </g>
+        `;
+    }).join('');
+    
+    const edgesSvg = edges.map(edge => {
+        const sourceNode = nodes.find(n => n.id === edge.sourceId);
+        const targetNode = nodes.find(n => n.id === edge.targetId);
+        if (!sourceNode || !targetNode) return '';
+        
+        const x1 = sourceNode.x + sourceNode.width;
+        const y1 = sourceNode.y + sourceNode.height / 2;
+        const x2 = targetNode.x;
+        const y2 = targetNode.y + targetNode.height / 2;
+        const midX = (x1 + x2) / 2;
+        const midY = (y1 + y2) / 2;
+        
+        const labelHtml = `
+            <div xmlns="http://www.w3.org/1999/xhtml" style="font-family: sans-serif; font-size: 14px; text-align: center;">
+              <div style="background-color: ${styles.edge.labelBg}; color: ${styles.edge.labelText}; border: 1px solid ${styles.edge.labelBorder}; padding: 2px 8px; border-radius: 6px; display: inline-block;">
+                ${escapeXml(edge.label)}
+              </div>
+              ${edge.condition ? `<div style="margin-top: 4px; background-color: ${styles.edge.conditionBg}; color: ${styles.edge.conditionText}; font-family: monospace; font-size: 12px; padding: 1px 6px; border-radius: 9999px; display: inline-block; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeXml(edge.condition)}</div>` : ''}
+            </div>
+        `;
+        
+        return `
+            <g>
+                <path d="M ${x1} ${y1} L ${x2} ${y2}" stroke="${styles.edge.line}" stroke-width="2" stroke-dasharray="${edge.type === 'action' ? '5,5' : 'none'}" marker-end="url(#arrowhead)" />
+                <foreignObject x="${midX - 75}" y="${midY - 30}" width="150" height="60">
+                    ${labelHtml}
+                </foreignObject>
+            </g>
+        `;
+    }).join('');
+
+    const svgString = `
+        <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <marker id="arrowhead" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto" fill="${styles.edge.line}">
+                    <polygon points="0 0, 7 2.5, 0 5" />
+                </marker>
+            </defs>
+            <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" fill="${styles.bg}" />
+            <g transform="translate(${-minX + padding}, ${-minY + padding})">
+                ${edgesSvg}
+                ${nodesSvg}
+            </g>
+        </svg>
+    `;
+
+    const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'app-flow.svg';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [nodes, edges, theme]);
+
+
   const handleImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -754,6 +955,7 @@ const App: React.FC = () => {
           onAddPageNode={handleAddPageNode} 
           onExport={handleExport} 
           onImport={triggerImport} 
+          onExportAsImage={handleExportAsImage}
           onToggleHistory={handleToggleHistory}
           onUndo={undo}
           onRedo={redo}

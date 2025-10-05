@@ -1,11 +1,12 @@
 import React from 'react';
-import { PlusIcon, ExportIcon, ImportIcon, PageIcon, HistoryIcon, UndoIcon, RedoIcon, SunIcon, MoonIcon } from './IconComponents';
+import { PlusIcon, ExportIcon, ImportIcon, PageIcon, HistoryIcon, UndoIcon, RedoIcon, SunIcon, MoonIcon, ImageIcon } from './IconComponents';
 
 interface ToolbarProps {
   onAddStateNode: () => void;
   onAddPageNode: () => void;
   onExport: () => void;
   onImport: () => void;
+  onExportAsImage: () => void;
   onToggleHistory: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -23,7 +24,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onAddStateNode, 
   onAddPageNode, 
   onExport, 
-  onImport, 
+  onImport,
+  onExportAsImage,
   onToggleHistory,
   onUndo,
   onRedo,
@@ -108,6 +110,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
         title="Export Flow (.json)"
       >
         <ExportIcon />
+      </button>
+      <button
+        onClick={onExportAsImage}
+        className="p-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"
+        title="Export as SVG Image"
+      >
+        <ImageIcon />
       </button>
       <div className="border-l border-slate-200 dark:border-slate-700 h-8 my-auto"></div>
       <button
